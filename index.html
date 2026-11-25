@@ -5,7 +5,7 @@
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=VT323&display=swap">
 <style>
-/* Layout: full-window sprite stage, metal HUD at the bottom, sprite-sheet overlay. Single dark look by choice. */
+/* Layout: full-window sprite stage, metal HUD at the bottom. Single dark look by choice. */
 :root{
   --bg:#0d0b09; --metal-hi:#4a463e; --metal-lo:#2a2823; --edge:#14130f;
   --term:#0b140a; --green:#7fe06a; --green-dim:#4f9a42; --amber:#e8a63a; --red:#ff5a43; --text:#d8cfb8; --muted:#a89f8a;
@@ -26,13 +26,6 @@ body{background:var(--bg);color:var(--text);font-family:var(--f-ui);overflow:hid
 #dead{position:absolute;inset:0;display:grid;place-items:center;pointer-events:none}
 #dead div{font-family:var(--f-term);font-size:48px;color:var(--red);text-shadow:0 0 12px #000,0 0 4px #000;letter-spacing:.06em}
 #loading{position:absolute;inset:0;display:grid;place-items:center;font-family:var(--f-term);font-size:30px;color:var(--green);background:var(--bg)}
-#sheet{position:absolute;inset:0;background:rgba(12,10,8,.96);overflow:auto;padding-block:16px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:18px;z-index:5}
-#sheet header{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between}
-#sheet h2{margin:0;font-size:24px;letter-spacing:.1em;color:var(--amber)}
-#sheet h3{margin:0 0 6px;font-size:19px;letter-spacing:.08em;color:var(--text)}
-#sheet p{margin:0;color:var(--muted);font-size:16px;max-width:70ch;line-height:1.35}
-#sheet .row{overflow-x:auto}
-#sheet canvas{image-rendering:pixelated;display:block;background:#3b3a30;border:1px solid #5a5446}
 #hud{flex:none;display:flex;flex-wrap:wrap;gap:12px;align-items:stretch;padding-block:10px calc(10px + env(safe-area-inset-bottom,0px));padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));background:linear-gradient(var(--metal-hi),var(--metal-lo));border-top:3px solid var(--edge)}
 #log{flex:1 1 300px;min-width:0;height:92px;box-sizing:border-box;background:var(--term);border:3px solid #191812;border-radius:6px;box-shadow:inset 0 0 18px rgba(0,0,0,.9);padding:6px 12px;font-family:var(--f-term);font-size:19px;line-height:1.1;color:var(--green);display:flex;flex-direction:column;justify-content:flex-end;overflow:hidden}
 #log div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -58,14 +51,6 @@ button kbd{font-family:var(--f-term);font-size:17px;color:var(--amber);margin-ri
     <div id="vig"></div>
     <div id="tip" hidden></div>
     <div id="dead" hidden><div>NIE ŻYJESZ · R</div></div>
-    <section id="sheet" hidden aria-label="Arkusz sprite'ów">
-      <header>
-        <h2>WYGENEROWANE SPRITE'Y</h2>
-        <button id="bSheetClose"><kbd>V</kbd>Zamknij</button>
-      </header>
-      <p>Postacie są wyrenderowane w Blenderze z darmowych modeli 3D (Quaternius, CC0): 8 kierunków, chód, bieg, kucanie, skradanie, leżenie, czołganie, strzał z odrzutem i kilkuetapowe upadki. Każda część ciała to osobny obrazek z mapą głębokości, dlatego da się ją odstrzelić. Powiększenie 3×.</p>
-      <div id="sheetBody" style="display:flex;flex-direction:column;gap:18px"></div>
-    </section>
     <div id="loading">WCZYTUJĘ GRAFIKĘ…</div>
   </div>
   <div id="hud">
@@ -92,8 +77,6 @@ button kbd{font-family:var(--f-term);font-size:17px;color:var(--amber);margin-ri
       <div class="lbl">SYMULACJA</div>
       <div id="side">
         <button id="bSlow"><kbd>␣</kbd>Zwolnij</button>
-        <button id="bFire"><kbd>T</kbd>Atak wroga</button>
-        <button id="bSheet"><kbd>V</kbd>Sprite'y</button>
         <button id="bReset"><kbd>R</kbd>Od nowa</button>
       </div>
     </div>
@@ -940,7 +923,7 @@ function rotFire(){
   for(let i=0;i<nb;i++){const ob=objs[bOi[i]],k=bK[i],x=k%ob.w;bK[i]=k-x+(ob.w-1-x);}
 }
 
-let shake=0,slow=false,enemyFire=false;const keys={};
+let shake=0,slow=false;const keys={};
 function supported(ch){
   if(ch.z<=.05)return true;
   for(const [ox,oy] of [[0,0],[1.2,0],[-1.2,0],[0,1.2],[0,-1.2]]){const x=ch.x+ox,y=ch.y+oy,z=ch.z-.4,sx=Math.round((x-y)*2+OX),sy=Math.round(x+y-2*z+OY),dq=x+y+z;
@@ -1040,8 +1023,7 @@ function humanAI(ch,ts){
     if(ch.roof){ch.moving=false;return;}ch.gait='run';setStance(ch,'stand');goTo(ch,ch.tx,ch.ty,SPEED.run,ts);return;
   }
   if(ch.ai!=='combat'){ // idle: wander near home, crouch to dig through scrap, look around
-    if(!player.alive||!enemyFire)ch.aim=0;
-    if(!ch.roof&&player.alive){const seeR=player.stance==='prone'?22:player.stance==='crouch'?40:(player.gait==='run'&&player.moving?110:75);
+    if(player.alive){const seeR=(ch.roof?1.6:1)*(player.stance==='prone'?22:player.stance==='crouch'?40:(player.gait==='run'&&player.moving?110:75));
       if(dpl<seeR&&rnd()<.05*ts&&los(eyeOf(ch,E1),eyeOf(player,E2)))alert(ch,true);}
     if(ch.wait>0){ch.wait-=ts;ch.moving=false;if(ch.dig>0){ch.dig-=ts;setStance(ch,'crouch');}else if(canStand(ch))setStance(ch,'stand');if(rnd()<.01*ts)ch.dir=(ch.dir+(rnd()<.5?1:7))%8;return;}
     if(ch.roof){ch.wait=60+rnd()*120;ch.dig=rnd()<.3?50:0;return;}
@@ -1277,51 +1259,16 @@ function drawFx(){
   if(mx>=0){const hov=fPick[my*BW+mx]<=-2;ctx.fillStyle=hov?'#ff5a43':'#ffffff';ctx.fillRect(mx-6,my,4,1);ctx.fillRect(mx+3,my,4,1);ctx.fillRect(mx,my-6,1,4);ctx.fillRect(mx,my+3,1,4);}
 }
 
-// ================= sprite sheet viewer =================
-function compositeFrame(T,dir,pose){
-  const fr=T.frames[dir*T.NP+pose];let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;
-  for(const im of fr){if(!im)continue;x0=Math.min(x0,im.ox);y0=Math.min(y0,im.oy);x1=Math.max(x1,im.ox+im.w);y1=Math.max(y1,im.oy+im.h);}
-  x0-=1;y0-=1;x1+=1;y1+=1;const w=x1-x0,h=y1-y0,col=new Uint32Array(w*h),dep=new Float32Array(w*h).fill(-1e9);
-  for(const im of fr){if(!im)continue;for(let v=0;v<im.h;v++)for(let u=0;u<im.w;u++){const k=v*im.w+u,c=im.col[k];if(!c)continue;const p=(im.oy-y0+v)*w+(im.ox-x0+u);if(im.dep[k]>dep[p]){dep[p]=im.dep[k];col[p]=c;}}}
-  const out=new Uint32Array(col);
-  for(let y=0;y<h;y++)for(let x=0;x<w;x++){const p=y*w+x;if(col[p])continue;if((x>0&&col[p-1])||(x<w-1&&col[p+1])||(y>0&&col[p-w])||(y<h-1&&col[p+w]))out[p]=0xff000000;}
-  return {w,h,data:out,ox:x0,oy:y0};
-}
-const sheetCanvases=[];
-function buildSheet(){
-  const body=document.getElementById('sheetBody');if(body.childElementCount)return;
-  const SC=3;
-  for(const key of ['ty','zlom','pies']){
-    const T=TYPES[key],cells=[];
-    for(let d=0;d<8;d++)cells.push([d,0]);
-    for(let p=1;p<T.NP;p++)cells.push([1,p]);
-    const comps=cells.map(([d,p])=>compositeFrame(T,d,p));
-    let cw=0,chh=0,top=0,bot=0;for(const c of comps){cw=Math.max(cw,c.w);top=Math.max(top,-c.oy);bot=Math.max(bot,c.h+c.oy);}chh=top+bot;
-    const perRow=10,rows=Math.ceil(comps.length/perRow),pad=6;
-    const cvs=document.createElement('canvas');cvs.width=(cw+pad)*perRow*SC;cvs.height=(chh+pad)*rows*SC;
-    const g=cvs.getContext('2d');g.imageSmoothingEnabled=false;
-    comps.forEach((c,i)=>{const t=document.createElement('canvas');t.width=c.w;t.height=c.h;const id=new ImageData(new Uint8ClampedArray(c.data.buffer.slice(0)),c.w,c.h);t.getContext('2d').putImageData(id,0,0);
-      const col=i%perRow,row=(i/perRow)|0,cx=col*(cw+pad)+((cw+pad)>>1),cy=row*(chh+pad)+top+(pad>>1);
-      g.drawImage(t,(cx+c.ox)*SC,(cy+c.oy)*SC,c.w*SC,c.h*SC);});
-    const wrap=document.createElement('div');const h3=document.createElement('h3');h3.textContent=`${T.name} · 8 kierunków, potem ${T.poseNames.slice(1).join(', ')}`;
-    const row=document.createElement('div');row.className='row';cvs.style.width=cvs.width+'px';row.appendChild(cvs);wrap.appendChild(h3);wrap.appendChild(row);body.appendChild(wrap);
-    sheetCanvases.push({name:key,canvas:cvs});
-  }
-}
-window.__op={get chars(){return chars},get nb(){return nb},get gb(){return gBurn.length},get amt(){return fireAmt},moloBurst,explode,setStance,toggleFire,rotateView,get player(){return player}};
-window.__opSheets=()=>{buildSheet();return sheetCanvases.map(s=>({name:s.name,url:s.canvas.toDataURL('image/png')}));};
+window.__op={get chars(){return chars},get nb(){return nb},get gb(){return gBurn.length},get amt(){return fireAmt},moloBurst,explode,setStance,rotateView,get player(){return player}};
 
 // ================= HUD =================
-const logEl=document.getElementById('log'),tip=document.getElementById('tip'),stats=document.getElementById('stats'),sheet=document.getElementById('sheet');
+const logEl=document.getElementById('log'),tip=document.getElementById('tip'),stats=document.getElementById('stats');
 function log(m,cls){const d=document.createElement('div');d.textContent='• '+m;if(cls)d.className=cls;logEl.appendChild(d);while(logEl.children.length>5)logEl.removeChild(logEl.firstChild);[...logEl.children].forEach((c,i,a)=>{if(i<a.length-2&&c.className!=='hit')c.className='old';});}
 function setW(i){cur=i;document.querySelectorAll('#weapons button').forEach(b=>b.classList.toggle('on',+b.dataset.w===i));}
 document.querySelectorAll('#weapons button').forEach(b=>b.addEventListener('click',()=>setW(+b.dataset.w)));
-const bSlow=document.getElementById('bSlow'),bFire=document.getElementById('bFire'),bSheet=document.getElementById('bSheet');
+const bSlow=document.getElementById('bSlow');
 function toggleSlow(){slow=!slow;bSlow.classList.toggle('on',slow);}
-function toggleFire(){enemyFire=!enemyFire;for(const ch of chars){if(ch===player||!ch.alive)continue;if(enemyFire)alert(ch,false);else{ch.ai='idle';ch.cover=null;ch.peeking=false;ch.tx=ch.hx;ch.ty=ch.hy;}}if(enemyFire){const d=chars.find(c=>c.kind==='dog'&&c.alive);if(d)sfx('pies_szczek',d.x,d.y,0,1);}bFire.classList.toggle('on',enemyFire);log(enemyFire?'Wrogowie atakują, pies szarżuje.':'Wrogowie wstrzymują atak.');}
-function toggleSheet(){if(!ready)return;buildSheet();sheet.hidden=!sheet.hidden;bSheet.classList.toggle('on',!sheet.hidden);}
-bSlow.addEventListener('click',toggleSlow);bFire.addEventListener('click',toggleFire);bSheet.addEventListener('click',toggleSheet);
-document.getElementById('bSheetClose').addEventListener('click',toggleSheet);
+bSlow.addEventListener('click',toggleSlow);
 document.getElementById('bReset').addEventListener('click',()=>reset());
 const stage=document.getElementById('stage');
 addEventListener('keydown',e=>{
@@ -1334,8 +1281,6 @@ addEventListener('keydown',e=>{
   else if((k==='x'||k==='z')&&ready&&player.alive)setStance(player,player.stance==='prone'?'stand':'prone');
   else if(e.key===' '){e.preventDefault();toggleSlow();}
   else if(k==='r')reset();
-  else if(k==='t')toggleFire();
-  else if(k==='v')toggleSheet();
   else if(k==='q')rotateView(-1);
   else if(k==='e')rotateView(1);
   else if(e.key==='+'||e.key==='=')setZoom(zoom*1.25);
@@ -1363,7 +1308,7 @@ addEventListener('resize',fit);new ResizeObserver(fit).observe(stage);
 let ready=false;
 function reset(){
   np=0;chunks=[];frags=[];topples=[];sandLeaks=[];debMt.fill(0);detached=[];emitters=[];grenades=[];pending=[];tracers=[];flashes=[];smoke=[];fire=[];dHt.fill(0);
-  ROT=0;resetWorld();initGroundFuel();spawnChars();enemyFire=false;bFire.classList.remove('on');computeShadows();compose(0,0,BW-1,BH-1);
+  ROT=0;resetWorld();initGroundFuel();spawnChars();computeShadows();compose(0,0,BW-1,BH-1);
   document.getElementById('dead').hidden=true;
   logEl.innerHTML='';log('Ulica Kolejowa. Złomiarze za barierami, jeden na dachu pawilonu, wilczur przy wraku.');log('WASD ruch, Shift bieg, C kucanie i skradanie, X czołganie. Klik strzał, 1–5 broń (5 mołotow).');log('Q/E obrót kamery, kółko myszy zoom, M dźwięk. Złomiarze chodzą po okolicy, dopóki ich nie zaalarmujesz.');
 }
