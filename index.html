@@ -57,7 +57,7 @@ button kbd{font-family:var(--f-term);font-size:17px;color:var(--amber);margin-ri
     <div id="vig"></div>
     <div id="top">
       <h1>ULICA KOLEJOWA · PRERENDER</h1>
-      <p>WASD ruch, celuj i klikaj. 1–4 broń, Spacja zwolnione tempo, T wrogowie atakują, R od nowa, V podgląd sprite'ów.</p>
+      <p>Każdy materiał niszczy się inaczej: cegła i beton w gruz, drewno w drzazgi i deski, szkło w odłamki, z worków sypie się piasek. WASD ruch, celuj i klikaj. 1–4 broń, Spacja zwolnione tempo, T wrogowie atakują, R od nowa, V podgląd sprite'ów.</p>
     </div>
     <div id="tip" hidden></div>
     <div id="dead" hidden><div>NIE ŻYJESZ · R</div></div>
@@ -137,17 +137,17 @@ const HUMAN_DEFS={legL:['lewa noga','lewą nogę','leg',55,true],legR:['prawa no
 const DOG_DEFS={body:['tułów','tułów','torso',70,false],head:['łeb','łeb','head',35,true],legFL:['przednia łapa','przednią łapę','leg',25,true],legFR:['przednia łapa','przednią łapę','leg',25,true],legBL:['tylna łapa','tylną łapę','leg',25,true],legBR:['tylna łapa','tylną łapę','leg',25,true],tail:['ogon','ogon','tail',15,true]};
 const TYPES={};
 async function loadAssets(){
-  const [wj,cj,ground,wc,wg,cc,cg]=await Promise.all([
+  const [wj,cj,ground,wc,wg,cc,cg,wm]=await Promise.all([
     fetch(ASSET+'world.json').then(r=>r.json()),fetch(ASSET+'chars.json').then(r=>r.json()),
-    loadPix(ASSET+'ground.png'),loadPix(ASSET+'world_color.png'),loadPix(ASSET+'world_geo.png'),loadPix(ASSET+'chars_color.png'),loadPix(ASSET+'chars_geo.png')]);
+    loadPix(ASSET+'ground.png'),loadPix(ASSET+'world_color.png'),loadPix(ASSET+'world_geo.png'),loadPix(ASSET+'chars_color.png'),loadPix(ASSET+'chars_geo.png'),loadPix(ASSET+'world_mat.png')]);
   // static objects
   const list=[];
   {const dep=new Float32Array(PIX),zh=new Float32Array(PIX);for(let y=0;y<BH;y++)dep.fill(y+.5-OY,y*BW,(y+1)*BW);
-   list.push({name:'Ziemia',mat:12,ex:false,x0:0,y0:0,w:BW,h:BH,layers:[{col:ground.d,dep,zh}],thick:5,c:[0,0,0],fp:null,blocks:false});}
+   list.push({name:'Ziemia',mat:12,ex:false,x0:0,y0:0,w:BW,h:BH,layers:[{col:ground.d,dep,zh,mt:new Uint8Array(PIX).fill(1)}],thick:5,c:[0,0,0],fp:null,blocks:false});}
   for(const m of wj.objects){
     const layers=m.layers.map(t=>{const r=wj.rects[t],col=cut(wc,r),g=cut(wg,r),n=col.length,dep=new Float32Array(n),zh=new Float32Array(n);
-      for(let k=0;k<n;k++){const v=g[k];dep[k]=(((v&255)<<8)|((v>>8)&255))/16;zh[k]=(v>>16)&255;}return {col,dep,zh};});
-    list.push({name:m.name,mat:m.mat,ex:m.ex,x0:m.x0,y0:m.y0,w:m.w,h:m.h,layers,thick:m.thick,c:m.c,fp:m.fp,blocks:m.blocks});
+      const mm=cut(wm,r),mt=new Uint8Array(n);for(let k=0;k<n;k++){const v=g[k];dep[k]=(((v&255)<<8)|((v>>8)&255))/16;zh[k]=(v>>16)&255;mt[k]=mm[k]&255;}return {col,dep,zh,mt};});
+    list.push({name:m.name,mat:m.mat,ex:m.ex,x0:m.x0,y0:m.y0,w:m.w,h:m.h,layers,thick:m.thick,c:m.c,fp:m.fp,blocks:m.blocks,topple:m.topple});
   }
   PRISTINE=list;
   // characters
@@ -165,7 +165,7 @@ async function loadAssets(){
   }
 }
 function resetWorld(){
-  objs=PRISTINE.map(o=>Object.assign({},o,{boom:false,layers:o.layers.map(l=>({col:l.col.slice(),dep:l.dep,zh:l.zh}))}));
+  objs=PRISTINE.map(o=>Object.assign({},o,{boom:false,layers:o.layers.map(l=>({col:l.col.slice(),dep:l.dep,zh:l.zh,mt:l.mt}))}));
   DEB=objs.length;
   objs.push({name:'Gruz',mat:2,ex:false,x0:0,y0:0,w:BW,h:BH,layers:[{col:new Uint32Array(PIX),dep:new Float32Array(PIX).fill(-1e9),zh:new Float32Array(PIX)}],thick:1.5,c:[0,0,0]});
   blocked.fill(0);
@@ -207,27 +207,43 @@ function flushDirty(ts){
   if(dx0>dx1)return;compose(dx0,dy0,dx1,dy1);dx0=dy0=1e9;dx1=dy1=-1e9;
 }
 
+// ================= materials =================
+// 1 soil 2 concrete 3 brick 4 stone 5 plaster 6 wood 7 glass 8 metal 9 roof tile 10 foliage 11 sand
+const M_WOOD=6,M_GLASS=7,M_METAL=8,M_LEAF=10,M_SAND=11;
+const BRITTLE=new Uint8Array(16);[1,2,3,4,5,9].forEach(m=>BRITTLE[m]=1);
+// rf: how far a hit reaches into this material; k: particle kind for loose bits; dust: smoke colour
+const MAT=[null,{rf:1,k:0,dust:'130,108,80'},{rf:1,k:0,dust:'176,172,162'},{rf:1,k:0,dust:'168,104,80'},{rf:.9,k:0,dust:'150,150,150'},{rf:1.15,k:0,dust:'206,198,182'},
+  {rf:.85,k:5,dust:'140,110,78'},{rf:1.9,k:4,dust:null},{rf:.45,k:0,dust:null},{rf:1.25,k:0,dust:'176,104,74'},{rf:1.45,k:3,dust:null},{rf:1.05,k:6,dust:'206,186,128'},{rf:1,k:1,dust:null}];
+const matOf=m=>MAT[m]||MAT[2];
+const PNAME=['Grunt','Grunt','Beton','Cegła','Kamień','Tynk','Drewno','Szkło','Metal','Dachówka','Liście','Piasek'];
+
 // ================= debris & stains =================
 const SL4=[[1,0],[-1,0],[0,1],[0,-1]];
+let debMt=new Uint8Array(PIX);
 function dHAt(x,y){const cx=Math.floor(x*2),cy=Math.floor(y*2);if(cx<0||cy<0||cx>=DW||cy>=DDH)return 0;return dHt[cy*DW+cx];}
-function debPix(sx,sy,c,d,z){
+function debPix(sx,sy,c,d,z,m){
   if(sx<0||sy<0||sx>=BW||sy>=BH)return;const p=sy*BW+sx,L=objs[DEB].layers[0];
   if(L.col[p]&&L.dep[p]>d+.6)return;
-  L.col[p]=c;L.dep[p]=d;L.zh[p]=z;
+  L.col[p]=c;L.dep[p]=d;L.zh[p]=z;debMt[p]=m||2;
   if(d>=sDep[p]-.01){sCol[p]=shMask[p]?darkP(c,.6):c;sDep[p]=d;sZ[p]=z;sObj[p]=DEB;sLay[p]=0;}
 }
-function placeDebris(x,y,c){
+// grains pile up; sand has a lower angle of repose; flat=true lays litter without height (leaves, glass, blood)
+function placeDebris(x,y,c,m,flat){
   let cx=Math.floor(x*2),cy=Math.floor(y*2);if(cx<0||cy<0||cx>=DW||cy>=DDH)return;
-  for(let it=0;it<6;it++){const h=dHt[cy*DW+cx];let bx=-1,by=-1,bh=h-.7;for(const [dx,dy] of SL4){const nx=cx+dx,ny=cy+dy;if(nx<0||ny<0||nx>=DW||ny>=DDH)continue;const nh=dHt[ny*DW+nx];if(nh<bh){bh=nh;bx=nx;by=ny;}}if(bx<0)break;cx=bx;cy=by;}
-  const ci=cy*DW+cx,z=dHt[ci];dHt[ci]=z+.45;
-  const wx=cx/2+.25,wy=cy/2+.25,zz=z+.45,P=proj(wx,wy,zz),sx=Math.round(P[0]),sy=Math.round(P[1]),d=wx+wy+zz,g=1+(rnd()-.5)*.1;
-  debPix(sx,sy,shp(c,1.02*g),d,zz);debPix(sx+1,sy,shp(c,.96*g),d,zz);debPix(sx,sy+1,shp(c,.76*g),d-.1,zz-.3);debPix(sx+1,sy+1,shp(c,.66*g),d-.1,zz-.3);
+  const slide=m===M_SAND?.32:m===M_WOOD?.9:.7;
+  if(!flat)for(let it=0;it<7;it++){const h=dHt[cy*DW+cx];let bx=-1,by=-1,bh=h-slide;for(const [dx,dy] of SL4){const nx=cx+dx,ny=cy+dy;if(nx<0||ny<0||nx>=DW||ny>=DDH)continue;const nh=dHt[ny*DW+nx];if(nh<bh){bh=nh;bx=nx;by=ny;}}if(bx<0)break;cx=bx;cy=by;}
+  const ci=cy*DW+cx,z=dHt[ci];
+  if(flat){const wx=x,wy=y,P=proj(wx,wy,z+.05);debPix(Math.round(P[0]),Math.round(P[1]),shp(c,1),wx+wy+z+.05,z+.05,m);return;}
+  const inc=m===M_SAND?.3:m===M_WOOD?.25:.45;dHt[ci]=z+inc;
+  const wx=cx/2+.25,wy=cy/2+.25,zz=z+inc,P=proj(wx,wy,zz),sx=Math.round(P[0]),sy=Math.round(P[1]),d=wx+wy+zz,g=1+(rnd()-.5)*.12;
+  debPix(sx,sy,shp(c,1.02*g),d,zz,m);debPix(sx+1,sy,shp(c,.94*g),d,zz,m);
+  if(m!==M_SAND){debPix(sx,sy+1,shp(c,.74*g),d-.1,zz-.3,m);debPix(sx+1,sy+1,shp(c,.64*g),d-.1,zz-.3,m);}
 }
 function stainGround(x,y,z){
   const P=proj(x,y,z),sx=Math.round(P[0]),sy=Math.round(P[1]);if(sx<1||sy<1||sx>=BW-1||sy>=BH-1)return;
   const p=sy*BW+sx,o=sObj[p];
   if(o===0||o===DEB){const L=objs[o].layers[0],k=o===DEB?p:(sy-objs[0].y0)*objs[0].w+(sx-objs[0].x0);if(L.col[k]){L.col[k]=blendP(L.col[k],BLOODP,.55);sCol[p]=shMask[p]?darkP(L.col[k],.6):L.col[k];}}
-  else debPix(sx,sy,blendP(BLOODP,0xff101010,rnd()*.3),x+y+z+.02,z);
+  else debPix(sx,sy,blendP(BLOODP,0xff101010,rnd()*.3),x+y+z+.02,z,12);
 }
 function stainAt(p){
   const o=sObj[p];if(o<0)return;const ob=objs[o],sx=p%BW,sy=(p/BW)|0,k=o===DEB?p:(sy-ob.y0)*ob.w+(sx-ob.x0),L=ob.layers[sLay[p]];
@@ -235,17 +251,26 @@ function stainAt(p){
 }
 
 // ================= particles =================
+// kinds: 0 grain, 1 blood, 2 spark, 3 leaf, 4 glass shard, 5 wood splinter, 6 sand
 const MAXP=60000;
-const px=new Float32Array(MAXP),py=new Float32Array(MAXP),pz=new Float32Array(MAXP),pvx=new Float32Array(MAXP),pvy=new Float32Array(MAXP),pvz=new Float32Array(MAXP),pl=new Float32Array(MAXP),pc=new Uint32Array(MAXP),pk=new Uint8Array(MAXP);
+const px=new Float32Array(MAXP),py=new Float32Array(MAXP),pz=new Float32Array(MAXP),pvx=new Float32Array(MAXP),pvy=new Float32Array(MAXP),pvz=new Float32Array(MAXP),pl=new Float32Array(MAXP),pc=new Uint32Array(MAXP),pk=new Uint8Array(MAXP),pm=new Uint8Array(MAXP),pb=new Uint8Array(MAXP);
 let np=0;
-function spawnP(x,y,z,vx,vy,vz,c,k){if(np>=MAXP)return false;const i=np++;px[i]=x;py[i]=y;pz[i]=z;pvx[i]=vx;pvy[i]=vy;pvz[i]=vz;pc[i]=c;pk[i]=k;pl[i]=0;return true;}
-function killP(i){np--;if(i<np){px[i]=px[np];py[i]=py[np];pz[i]=pz[np];pvx[i]=pvx[np];pvy[i]=pvy[np];pvz[i]=pvz[np];pc[i]=pc[np];pk[i]=pk[np];pl[i]=pl[np];}}
-function burstBlood(x,y,z,dir,n,spd){for(let k=0;k<n;k++)spawnP(x,y,z,dir[0]*spd*(.3+rnd())+(rnd()-.5)*.6,dir[1]*spd*(.3+rnd())+(rnd()-.5)*.6,dir[2]*spd*(.3+rnd())+(rnd()-.2)*.6+.2,bloodC(),1);}
+function spawnP(x,y,z,vx,vy,vz,c,k,m){if(np>=MAXP)return false;const i=np++;px[i]=x;py[i]=y;pz[i]=z;pvx[i]=vx;pvy[i]=vy;pvz[i]=vz;pc[i]=c;pk[i]=k;pl[i]=0;pm[i]=m||2;pb[i]=0;return true;}
+function killP(i){np--;if(i<np){px[i]=px[np];py[i]=py[np];pz[i]=pz[np];pvx[i]=pvx[np];pvy[i]=pvy[np];pvz[i]=pvz[np];pc[i]=pc[np];pk[i]=pk[np];pl[i]=pl[np];pm[i]=pm[np];pb[i]=pb[np];}}
+function burstBlood(x,y,z,dir,n,spd){for(let k=0;k<n;k++)spawnP(x,y,z,dir[0]*spd*(.3+rnd())+(rnd()-.5)*.6,dir[1]*spd*(.3+rnd())+(rnd()-.5)*.6,dir[2]*spd*(.3+rnd())+(rnd()-.2)*.6+.2,bloodC(),1,12);}
+function settleP(i,x,y,gh){
+  const k=pk[i];
+  if(k===1){stainGround(x,y,gh);return;}
+  if(k===3||k===4){placeDebris(x,y,k===4?mixRGB(pc[i],0xd8e8f0,.35):pc[i],pm[i],true);return;}
+  placeDebris(x,y,pc[i],pm[i],false);
+}
 function updParticles(ts){
   for(let i=np-1;i>=0;i--){
     const k=pk[i];pl[i]+=ts;
     if(k===2){if(pl[i]>16){killP(i);continue;}px[i]+=pvx[i]*ts;py[i]+=pvy[i]*ts;pz[i]+=pvz[i]*ts;pvz[i]-=G*.5*ts;continue;}
-    pvz[i]-=G*ts;
+    if(k===3){ // leaves and needles: slow fall, drift and flutter
+      pvz[i]-=G*.1*ts;if(pvz[i]<-.12)pvz[i]=-.12;const fl=Math.sin(pl[i]*.18+i)*.012;pvx[i]=pvx[i]*.985+fl;pvy[i]=pvy[i]*.985-fl*.6;
+    }else pvz[i]-=G*ts;
     let vx=pvx[i]*ts,vy=pvy[i]*ts,vz=pvz[i]*ts;
     const steps=Math.max(1,Math.ceil(Math.max(Math.abs(vx),Math.abs(vy),Math.abs(vz))/.6));vx/=steps;vy/=steps;vz/=steps;
     let x=px[i],y=py[i],z=pz[i],dead=false;
@@ -254,42 +279,197 @@ function updParticles(ts){
       if(x<0||y<0||x>=W||y>=D){dead=true;break;}
       const gh=dHAt(x,y);
       if(z<=gh){
-        if(k===1){stainGround(x,y,gh);dead=true;break;}
-        if(pvz[i]<-.75){z=gh+.01;pvz[i]*=-.25;pvx[i]*=.5;pvy[i]*=.5;break;}
-        placeDebris(x,y,pc[i]);dead=true;break;
+        const bounce=k===4?.45:k===5?.3:k===0?.25:0;
+        if(bounce&&pvz[i]<-.45){z=gh+.01;pvz[i]*=-bounce;pvx[i]*=.6;pvy[i]*=.6;break;}
+        settleP(i,x,y,gh);dead=true;break;
       }
       if(pl[i]<3)continue;
       const sx=Math.round((x-y)*2+OX),sy=Math.round(x+y-2*z+OY);
       if(sx>=0&&sy>=0&&sx<BW&&sy<BH){const p=sy*BW+sx,o=sObj[p];
         if(o>0&&o!==DEB){const dd=x+y+z-sDep[p];if(dd<.6&&dd>-1.6){
           if(k===1){stainAt(p);dead=true;break;}
-          x-=vx;y-=vy;z-=vz;pvx[i]*=-.3;pvy[i]*=-.3;vx=-vx*.3;vy=-vy*.3;
-          if(Math.abs(pvx[i])+Math.abs(pvy[i])<.12&&Math.abs(pvz[i])<.25){placeDebris(x,y,pc[i]);dead=true;}
+          x-=vx;y-=vy;pvx[i]*=-.3;pvy[i]*=-.3;vx=-vx*.3;vy=-vy*.3;
+          if(++pb[i]>5||(Math.abs(pvx[i])+Math.abs(pvy[i])<.12&&Math.abs(pvz[i])<.25)){settleP(i,x,y,dHAt(x,y));dead=true;}
           break;}}}
     }
     if(dead){killP(i);continue;}
     px[i]=x;py[i]=y;pz[i]=z;
-    if(k===0&&pl[i]>600){placeDebris(x,y,pc[i]);killP(i);}
+    if(k!==1&&pl[i]>(k===3?1400:600)){settleP(i,x,y,dHAt(x,y));killP(i);}
     else if(k===1&&pl[i]>400)killP(i);
   }
+}
+function spawnBit(x,y,z,vx,vy,vz,c,m){
+  const k=matOf(m).k;
+  if(np>MAXP-500){placeDebris(x,y,c,m,k===3||k===4);return;}
+  if(k===4){vx*=1.4;vy*=1.4;vz=vz*1.2+.2;}
+  if(k===3){vx*=.5;vy*=.5;vz=Math.abs(vz)*.4+.05;}
+  spawnP(x,y,z,vx,vy,vz,c,k,m);
+}
+
+// ================= rigid fragments (bricks, planks, chunks of concrete) =================
+let frags=[];const MAXFR=700;
+const REM={sx:[],sy:[],col:[],dep:[],zh:[],mt:[]};
+function remClear(){REM.sx.length=REM.sy.length=REM.col.length=REM.dep.length=REM.zh.length=REM.mt.length=0;}
+function remPush(sx,sy,c,d,z,m){REM.sx.push(sx);REM.sy.push(sy);REM.col.push(c);REM.dep.push(d);REM.zh.push(z);REM.mt.push(m);}
+// split removed pixels into pieces: weighted Voronoi gives a power-law-like spread of sizes for brittle
+// materials (few big chunks, many small), stretched cells give long slivers along the grain for wood.
+function makeFragments(R,vel,o){
+  const n=R.sx.length;if(!n)return;
+  const mean=o.mean||8,axis=o.axis||[0,1];
+  const groups={};
+  for(let i=0;i<n;i++){const m=R.mt[i]||2,cls=m===M_GLASS||m===M_LEAF||m===M_SAND?'loose':m===M_WOOD?'wood':m===M_METAL?'metal':'brittle';(groups[cls]||(groups[cls]=[])).push(i);}
+  const V=[0,0,0];
+  for(const cls in groups){
+    const idx=groups[cls];
+    if(cls==='loose'){
+      for(const i of idx){const m=R.mt[i];if(m===M_LEAF&&rnd()>.45){if(rnd()<.3){toWorld(R.sx[i],R.dep[i],R.zh[i],TW);placeDebris(TW[0],TW[1],rgbOf(R.col[i]),m,true);}continue;}
+        if(m===M_GLASS&&rnd()>.75)continue;
+        toWorld(R.sx[i],R.dep[i],R.zh[i],TW);vel(TW[0],TW[1],TW[2],V);spawnBit(TW[0],TW[1],TW[2],V[0]+(rnd()-.5)*.4,V[1]+(rnd()-.5)*.4,V[2]+rnd()*.3,rgbOf(R.col[i]),m);}
+      continue;
+    }
+    const sz=cls==='metal'?mean*2.5:cls==='wood'?mean*1.6:mean;
+    const K=Math.max(1,Math.min(260,Math.round(idx.length/sz)));
+    const seeds=[];for(let s=0;s<K;s++){const i=idx[(rnd()*idx.length)|0];const u=rnd();seeds.push([R.sx[i],R.sy[i],cls==='brittle'?.35+2.6*u*u*u:.6+rnd()*.8]);}
+    const ax=axis[0],ay=axis[1],cell=new Int32Array(idx.length);
+    for(let q=0;q<idx.length;q++){const i=idx[q],x=R.sx[i],y=R.sy[i];let best=0,bd=1e18;
+      for(let s=0;s<K;s++){const dx=x-seeds[s][0],dy=y-seeds[s][1];let d;
+        if(cls==='wood'){const al=dx*ax+dy*ay,pe=-dx*ay+dy*ax;d=al*al*.12+pe*pe*4;}else d=dx*dx+dy*dy;
+        d/=seeds[s][2]*seeds[s][2];if(d<bd){bd=d;best=s;}}
+      cell[q]=best;}
+    const members=Array.from({length:K},()=>[]);for(let q=0;q<idx.length;q++)members[cell[q]].push(idx[q]);
+    for(const mem of members){
+      if(!mem.length)continue;
+      const dust=cls==='brittle'?(mem.length<4||rnd()<(o.dust||.18)):mem.length<3;
+      if(!dust&&frags.length>=MAXFR){makeFrag(R,mem,vel,9);const f=frags.pop();f.z=dHAt(f.x,f.y)+f.ext;bakeFrag(f);continue;}
+      if(dust){
+        for(const i of mem){toWorld(R.sx[i],R.dep[i],R.zh[i],TW);vel(TW[0],TW[1],TW[2],V);
+          spawnBit(TW[0],TW[1],TW[2],V[0]+(rnd()-.5)*.5,V[1]+(rnd()-.5)*.5,V[2]+rnd()*.4,rgbOf(R.col[i]),R.mt[i]);}
+        if(cls==='brittle'&&mem.length>6&&smoke.length<380){const i=mem[0],mm=matOf(R.mt[i]);if(mm.dust)smoke.push({x:R.sx[i],y:R.sy[i],r:2+Math.sqrt(mem.length),vr:.2,a:.4,vx:(rnd()-.5)*.3,vy:-.1-rnd()*.15,c:mm.dust});}
+        continue;
+      }
+      makeFrag(R,mem,vel,o.gen||0);
+    }
+  }
+}
+function makeFrag(R,mem,vel,gen){
+  let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9,sd=0,sz=0,cnt={};
+  for(const i of mem){const x=R.sx[i],y=R.sy[i];if(x<x0)x0=x;if(x>x1)x1=x;if(y<y0)y0=y;if(y>y1)y1=y;sd+=R.dep[i];sz+=R.zh[i];cnt[R.mt[i]]=(cnt[R.mt[i]]||0)+1;}
+  const w=x1-x0+1,h=y1-y0+1,col=new Uint32Array(w*h),dep=new Float32Array(w*h);let su=0,sv=0;
+  for(const i of mem){const k=(R.sy[i]-y0)*w+(R.sx[i]-x0);col[k]=R.col[i];dep[k]=R.dep[i];su+=R.sx[i]-x0;sv+=R.sy[i]-y0;}
+  const n=mem.length,md=sd/n,mz=sz/n,cu=su/n,cv=sv/n;
+  const m=+Object.keys(cnt).reduce((a,b)=>cnt[a]>=cnt[b]?a:b);
+  toWorld(x0+cu,md,mz,TW);const V=[0,0,0];vel(TW[0],TW[1],TW[2],V);
+  const heavy=Math.min(1,10/Math.sqrt(n));
+  frags.push({n,w,h,col,dep,cu,cv,md,x:TW[0],y:TW[1],z:TW[2],vx:V[0]+(rnd()-.5)*.35*heavy,vy:V[1]+(rnd()-.5)*.35*heavy,vz:V[2]+rnd()*.3*heavy,
+    ang:0,av:(rnd()-.5)*(m===M_METAL?.12:.35)*heavy,mt:m,brittle:!!BRITTLE[m],gen,rest:0,ext:Math.max(.6,Math.min(w,h)/4+.2)});
+}
+function fragPixels(f,cb){ // iterate the rotated bitmap on screen
+  const P=proj(f.x,f.y,f.z),cx=P[0],cy=P[1],cd=f.x+f.y+f.z,c=Math.cos(f.ang),s=Math.sin(f.ang),Rr=Math.ceil(Math.hypot(f.w,f.h)/2)+1;
+  for(let v=-Rr;v<=Rr;v++)for(let u=-Rr;u<=Rr;u++){
+    const iu=Math.floor(c*u+s*v+f.cu),iv=Math.floor(-s*u+c*v+f.cv);if(iu<0||iv<0||iu>=f.w||iv>=f.h)continue;const k=iv*f.w+iu,col=f.col[k];if(!col)continue;
+    cb(Math.round(cx+u),Math.round(cy+v),col,cd+f.dep[k]-f.md,k);}
+}
+function bakeFrag(f){
+  fragPixels(f,(X,Y,col,d)=>debPix(X,Y,col,d,f.z,f.mt));
+  const r=Math.max(1,Math.round(Math.sqrt(f.n)/3)),cx=Math.floor(f.x*2),cy=Math.floor(f.y*2),add=Math.min(2.5,f.ext*.6);
+  for(let y=cy-r;y<=cy+r;y++)for(let x=cx-r;x<=cx+r;x++){if(x<0||y<0||x>=DW||y>=DDH)continue;const i=y*DW+x;dHt[i]=Math.max(dHt[i],f.z-f.ext+add);}
+}
+function splitFrag(f,impact){
+  remClear();fragPixels(f,(X,Y,col,d,k)=>remPush(X,Y,col,d,Math.max(0,f.z+(f.md-d)*0),f.mt));
+  for(let i=0;i<REM.zh.length;i++)REM.zh[i]=Math.max(.1,f.z-f.ext+ .3);
+  const cx=f.x,cy=f.y,s=Math.min(1.2,impact*.7);
+  makeFragments(REM,(x,y,z,V)=>{const dx=x-cx,dy=y-cy,l=Math.hypot(dx,dy)||1;V[0]=dx/l*s*.3+f.vx*.3;V[1]=dy/l*s*.3+f.vy*.3;V[2]=s*.25;},{mean:Math.max(5,f.n/3.5),gen:f.gen+1,dust:.25});
+  const P=proj(f.x,f.y,f.z),mm=matOf(f.mt);if(mm.dust&&smoke.length<380)smoke.push({x:P[0],y:P[1],r:3+Math.sqrt(f.n)*.6,vr:.25,a:.45,vx:(rnd()-.5)*.4,vy:-.15,c:mm.dust});
+}
+function updFrags(ts){
+  for(let i=frags.length-1;i>=0;i--){
+    const f=frags[i];
+    f.vz-=G*ts;const nx=f.x+f.vx*ts,ny=f.y+f.vy*ts,nz=f.z+f.vz*ts;f.ang+=f.av*ts;
+    if(nx<1||ny<1||nx>=W-1||ny>=D-1){frags.splice(i,1);continue;}
+    const gh=dHAt(nx,ny);
+    if(nz-f.ext<=gh){
+      const imp=-f.vz;
+      if(f.brittle&&imp>.85&&f.n>=24&&f.gen<2){frags.splice(i,1);f.z=gh+f.ext;splitFrag(f,imp);continue;}
+      if(f.mt===M_WOOD&&imp>.9&&f.n>=16&&f.gen<1&&rnd()<.5){frags.splice(i,1);f.z=gh+f.ext;splitFrag(f,imp*.6);continue;}
+      const rest=f.mt===M_METAL?.35:f.mt===M_WOOD?.3:.12;
+      f.z=gh+f.ext;f.vz=imp>.15?imp*rest:0;f.vx*=.5;f.vy*=.5;f.av*=.45;f.x=nx;f.y=ny;
+      if(Math.abs(f.vz)<.2&&Math.hypot(f.vx,f.vy)<.1)f.rest++;
+      if(f.rest>4){bakeFrag(f);frags.splice(i,1);}
+    }else if(gSolid(nx,ny,nz)){f.vx*=-.35;f.vy*=-.35;f.av*=-.6;f.z=nz;}
+    else{f.x=nx;f.y=ny;f.z=nz;}
+  }
+}
+function drawFrags(){
+  for(const f of frags){
+    const sh=Math.max(0,f.z-dHAt(f.x,f.y));
+    fragPixels(f,(X,Y,col,d)=>{if(X<1||Y<1||X>=BW-1||Y>=BH-1)return;const p=Y*BW+X;
+      if(sh>1){const sp=Math.round(X+1.8*sh),sq=Math.round(Y+2.3*sh);if(sp>0&&sq>0&&sp<BW&&sq<BH){const p2=sq*BW+sp,o=fPick[p2];if((o===0||o===DEB)&&!shMark[p2]){shMark[p2]=1;fCol[p2]=darkP(fCol[p2],.65);}}}
+      if(d>fDep[p]){fDep[p]=d;fCol[p]=col;fPick[p]=-1;}});
+  }
+}
+
+// ================= toppling (trees, lamp posts) =================
+let topples=[];
+function makeTopple(ob,R,hitDir){
+  const n=R.sx.length,wx=new Float32Array(n),wy=new Float32Array(n),wz=new Float32Array(n);
+  let minz=1e9;
+  for(let i=0;i<n;i++){toWorld(R.sx[i],R.dep[i],R.zh[i],TW);wx[i]=TW[0];wy[i]=TW[1];wz[i]=TW[2];if(TW[2]<minz)minz=TW[2];}
+  let px_=0,py_=0,pc_=0,cx=0,cy=0,cz=0;
+  for(let i=0;i<n;i++){cx+=wx[i];cy+=wy[i];cz+=wz[i];if(wz[i]<minz+2){px_+=wx[i];py_+=wy[i];pc_++;}}
+  cx/=n;cy/=n;cz/=n;px_/=pc_;py_/=pc_;
+  let fx=(cx-px_)+(hitDir?hitDir[0]*3:0)+(rnd()-.5)*2,fy=(cy-py_)+(hitDir?hitDir[1]*3:0)+(rnd()-.5)*2;const l=Math.hypot(fx,fy)||1;fx/=l;fy/=l;
+  const L=Math.max(4,cz-minz),H2=L*2.2;
+  const ex=px_+fx*H2,ey=py_+fy*H2;if(ex<4||ey<4||ex>W-4||ey>D-4){fx=-fx;fy=-fy;const ex2=px_+fx*H2,ey2=py_+fy*H2;if(ex2<4||ey2<4||ex2>W-4||ey2>D-4){const t=fx;fx=-fy;fy=t;if(px_+fx*H2<4||py_+fy*H2<4||px_+fx*H2>W-4||py_+fy*H2>D-4){fx=-fx;fy=-fy;}}}
+  topples.push({n,wx,wy,wz,col:Uint32Array.from(R.col),mt:Uint8Array.from(R.mt),px:px_,py:py_,pz:minz,fx,fy,th:.03,om:.004,k:1.6*G/L,name:ob.name});
+  log(`${ob.name} przewraca się.`,'hit');
+}
+function toppleXf(t,i,c,s,o){const rx=t.wx[i]-t.px,ry=t.wy[i]-t.py,rz=t.wz[i]-t.pz,a=rx*t.fx+ry*t.fy,bx=rx-a*t.fx,by=ry-a*t.fy,a2=a*c+rz*s,z2=-a*s+rz*c;o[0]=t.px+bx+a2*t.fx;o[1]=t.py+by+a2*t.fy;o[2]=t.pz+z2;return o;}
+const TV=[0,0,0];
+function updTopples(ts){
+  for(let j=topples.length-1;j>=0;j--){
+    const t=topples[j];t.om+=t.k*Math.sin(t.th)*ts;t.th+=t.om*ts;
+    const c=Math.cos(t.th),s=Math.sin(t.th);let hit=t.th>1.55;
+    if(!hit)for(let i=0;i<t.n;i+=9){toppleXf(t,i,c,s,TV);if(TV[2]<=dHAt(TV[0],TV[1])+.2&&t.wz[i]-t.pz>3){hit=true;break;}}
+    if(!hit)continue;
+    topples.splice(j,1);
+    remClear();
+    for(let i=0;i<t.n;i++){toppleXf(t,i,c,s,TV);const z=Math.max(0,TV[2]),P=proj(TV[0],TV[1],z);remPush(Math.round(P[0]),Math.round(P[1]),t.col[i],TV[0]+TV[1]+z,z,t.mt[i]);}
+    const ax=(t.fx-t.fy)*2,ay=(t.fx+t.fy),al=Math.hypot(ax,ay)||1,sp=t.om*6;
+    makeFragments(REM,(x,y,z,V)=>{const d=Math.hypot(x-t.px,y-t.py);V[0]=t.fx*sp*.15*d/10;V[1]=t.fy*sp*.15*d/10;V[2]=.15+rnd()*.25;},{mean:26,axis:[ax/al,ay/al],dust:.1});
+    shake+=3;
+    const P=proj(t.px+t.fx*10,t.py+t.fy*10,0);for(let k=0;k<6;k++)smoke.push({x:P[0]+(rnd()-.5)*40,y:P[1]+(rnd()-.5)*14,r:6+rnd()*8,vr:.2,a:.35,vx:(rnd()-.5)*.4,vy:-.1,c:'150,138,110'});
+  }
+}
+function drawTopples(){
+  for(const t of topples){const c=Math.cos(t.th),s=Math.sin(t.th);
+    for(let i=0;i<t.n;i++){toppleXf(t,i,c,s,TV);const X=Math.round((TV[0]-TV[1])*2+OX),Y=Math.round(TV[0]+TV[1]-2*TV[2]+OY);if(X<1||Y<1||X>=BW-2||Y>=BH-1)continue;const d=TV[0]+TV[1]+TV[2],p=Y*BW+X;
+      for(const q of [p,p+1,p+BW,p+BW+1])if(d>fDep[q]){fDep[q]=d;fCol[q]=t.col[i];fPick[q]=-1;}}}
 }
 
 // ================= static damage =================
 const TW=[0,0,0];
-function eraseSphere(oi,cx,cy,cz,r,onPix){
-  const ob=objs[oi],P=proj(cx,cy,cz),rx=r*2.6+3,ry=r*2.9+3;
+let sandLeaks=[];
+// erase a sphere of material; each material reacts differently (glass shatters wide, metal only dents)
+function eraseSphere(oi,cx,cy,cz,r,collect,scorch){
+  const ob=objs[oi],P=proj(cx,cy,cz),rr0=r*1.9,rx=rr0*2.6+3,ry=rr0*2.9+3;
   const ax0=Math.max(ob.x0,Math.floor(P[0]-rx)),ax1=Math.min(ob.x0+ob.w-1,Math.ceil(P[0]+rx)),ay0=Math.max(ob.y0,Math.floor(P[1]-ry)),ay1=Math.min(ob.y0+ob.h-1,Math.ceil(P[1]+ry));
-  if(ax1<ax0||ay1<ay0)return 0;let n=0;
-  for(const ly of ob.layers){const C=ly.col,Dp=ly.dep,Z=ly.zh;
+  if(ax1<ax0||ay1<ay0)return 0;let n=0,sandAt=null;
+  for(const ly of ob.layers){const C=ly.col,Dp=ly.dep,Z=ly.zh,MT=oi===DEB?debMt:ly.mt;
     for(let y=ay0;y<=ay1;y++)for(let x=ax0;x<=ax1;x++){const k=(y-ob.y0)*ob.w+(x-ob.x0),c=C[k];if(!c)continue;
-      toWorld(x,Dp[k],Z[k],TW);const dist=Math.hypot(TW[0]-cx,TW[1]-cy,TW[2]-cz),rr=r*(.85+.3*hsh(x,y,3));
-      if(dist<rr){C[k]=0;n++;if(onPix)onPix(TW[0],TW[1],TW[2],c,dist);}
-      else if(dist<r+3&&onPix&&r>5){C[k]=darkP(c,.45+.5*(dist-r)/3);}
+      toWorld(x,Dp[k],Z[k],TW);const dist=Math.hypot(TW[0]-cx,TW[1]-cy,TW[2]-cz),m=MT?MT[k]:2,rf=matOf(m).rf,rr=r*rf*(.85+.3*hsh(x,y,3));
+      if(dist<rr){C[k]=0;n++;if(collect)remPush(x,y,c,Dp[k],Z[k],m);if(m===M_SAND&&!sandAt)sandAt=[TW[0],TW[1],TW[2]];}
+      else if(m===M_METAL&&dist<r*1.2){C[k]=darkP(c,.82);}
+      else if(scorch&&dist<r+3){C[k]=darkP(c,.45+.5*(dist-r)/3);}
     }}
-  if(n||r>5){dirty(ax0,ay0,ax1,ay1);if(oi!==0&&oi!==DEB)shadowDirty=true;}
+  if(sandAt&&sandLeaks.length<30)sandLeaks.push({x:sandAt[0],y:sandAt[1],z:sandAt[2],life:260,c:rgb(196,170,112)});
+  if(n||scorch){dirty(ax0,ay0,ax1,ay1);if(oi!==0&&oi!==DEB)shadowDirty=true;}
   return n;
 }
-let chunks=[];
+function updSandLeaks(ts){
+  for(let i=sandLeaks.length-1;i>=0;i--){const s=sandLeaks[i];s.life-=ts;if(s.life<=0){sandLeaks.splice(i,1);continue;}
+    const rate=s.life/260*2.2*ts;for(let k=0;k<rate;k++)if(rnd()<rate-k)spawnP(s.x+(rnd()-.5)*.6,s.y+(rnd()-.5)*.6,s.z,(rnd()-.5)*.08,(rnd()-.5)*.08,-.02,jr(200,174,116,10),6,M_SAND);}
+}
+let chunks=[],lastHitDir=null;
 function checkSupport(oi){
   if(oi===0||oi===DEB)return;
   const ob=objs[oi],n=ob.w*ob.h,L=ob.layers.length,w=ob.w,vis=new Uint8Array(n*L),st=new Int32Array(n*L);let sp=0;
@@ -299,12 +479,16 @@ function checkSupport(oi){
     if(x>0)tryN(k-1);if(x<w-1)tryN(k+1);if(k>=w)tryN(k-w);if(k+w<n)tryN(k+w);
     for(let l2=0;l2<L;l2++){if(l2===l)continue;const j=l2*n+k,ly2=ob.layers[l2];if(!vis[j]&&ly2.col[k]&&Math.abs(ly2.dep[k]-d)<7){vis[j]=1;st[sp++]=j;}}
   }
-  const px_=[],py_=[],cc=[],dd=[],zz=[];
-  for(let l=0;l<L;l++){const ly=ob.layers[l];for(let k=0;k<n;k++){if(!ly.col[k]||vis[l*n+k])continue;px_.push(ob.x0+k%w);py_.push(ob.y0+((k/w)|0));cc.push(ly.col[k]);dd.push(ly.dep[k]);zz.push(ly.zh[k]);ly.col[k]=0;}}
-  if(!px_.length)return;
+  if(L>1){const top=new Int32Array(w).fill(1e9),O=ob.layers[0].col;
+    for(let k=0;k<n;k++)if(O[k]&&vis[k]){const x=k%w,y=(k/w)|0;if(y<top[x])top[x]=y;}
+    for(let l=1;l<L;l++){const C=ob.layers[l].col;for(let k=0;k<n;k++){if(!C[k]||!vis[l*n+k])continue;const x=k%w,y=(k/w)|0;if(y<top[x]-14)vis[l*n+k]=0;}}}
+  remClear();
+  for(let l=0;l<L;l++){const ly=ob.layers[l];for(let k=0;k<n;k++){if(!ly.col[k]||vis[l*n+k])continue;remPush(ob.x0+k%w,ob.y0+((k/w)|0),ly.col[k],ly.dep[k],ly.zh[k],ly.mt?ly.mt[k]:2);ly.col[k]=0;}}
+  const m=REM.sx.length;if(!m)return;
   dirty(ob.x0,ob.y0,ob.x0+ob.w,ob.y0+ob.h);shadowDirty=true;
-  if(px_.length<40){for(let i=0;i<px_.length;i++){toWorld(px_[i],dd[i],zz[i],TW);spawnP(TW[0],TW[1],TW[2],(rnd()-.5)*.3,(rnd()-.5)*.3,0,rgbOf(cc[i]),0);}return;}
-  const m=px_.length,ch={n:m,sx:new Int16Array(px_),sy:new Int16Array(py_),col:new Uint32Array(cc),dep:new Float32Array(dd),zh:new Float32Array(zz),dz:0,vz:0,bot:[]};
+  if(ob.topple&&m>30){makeTopple(ob,REM,lastHitDir);return;}
+  if(m<40){makeFragments(REM,(x,y,z,V)=>{V[0]=(rnd()-.5)*.2;V[1]=(rnd()-.5)*.2;V[2]=0;},{mean:6});return;}
+  const ch={n:m,sx:new Int16Array(REM.sx),sy:new Int16Array(REM.sy),col:new Uint32Array(REM.col),dep:new Float32Array(REM.dep),zh:new Float32Array(REM.zh),mt:new Uint8Array(REM.mt),dz:0,vz:0,bot:[]};
   const low=new Map();for(let i=0;i<m;i++){const b=low.get(ch.sx[i]);if(b===undefined||ch.sy[i]>ch.sy[b])low.set(ch.sx[i],i);}
   ch.bot=[...low.values()];chunks.push(ch);
   if(m>800)log(`${ob.name}: konstrukcja traci oparcie i się wali.`,'hit');
@@ -320,29 +504,34 @@ function updChunks(ts){
     if(hit){shatter(ch);chunks.splice(c,1);}
   }
 }
+// a falling piece of building breaks on impact: brick and concrete into rubble of mixed sizes, beams into planks, glass into shards
 function shatter(ch){
   const imp=Math.min(2.2,-ch.vz);shake+=Math.min(7,ch.n/2500+1);
-  for(let i=0;i<ch.n;i++){
-    toWorld(ch.sx[i],ch.dep[i]+ch.dz,Math.max(0,ch.zh[i]+ch.dz),TW);const c=rgbOf(ch.col[i]);
-    if(np<MAXP-3000&&(ch.n<12000||rnd()<.5))spawnP(TW[0],TW[1],TW[2]+.3,(rnd()-.5)*imp*.5,(rnd()-.5)*imp*.5,rnd()*imp*.28,c,0);
-    else placeDebris(TW[0],TW[1],c);
-  }
-  for(let k=0;k<Math.min(40,ch.n/150);k++){const i=(rnd()*ch.n)|0;smoke.push({x:ch.sx[i],y:ch.sy[i]-2*ch.dz,r:8+rnd()*12,vr:.25,a:.45,vx:(rnd()-.5)*.4,vy:-.15-rnd()*.2,c:'150,142,128'});}
+  remClear();let cx=0,cy=0;
+  for(let i=0;i<ch.n;i++){const z=Math.max(0,ch.zh[i]+ch.dz);remPush(ch.sx[i],Math.round(ch.sy[i]-2*ch.dz),ch.col[i],ch.dep[i]+ch.dz,z,ch.mt[i]);}
+  for(let i=0;i<ch.n;i+=17){toWorld(REM.sx[i],REM.dep[i],REM.zh[i],TW);cx+=TW[0];cy+=TW[1];}const cnt=Math.ceil(ch.n/17);cx/=cnt;cy/=cnt;
+  makeFragments(REM,(x,y,z,V)=>{const dx=x-cx,dy=y-cy,l=Math.hypot(dx,dy)||1,s=imp*(.03+rnd()*.13);V[0]=dx/l*s;V[1]=dy/l*s;V[2]=imp*(.04+rnd()*.12);},{mean:Math.min(90,Math.max(10,ch.n/90)),dust:.15});
+  for(let k=0;k<Math.min(40,ch.n/150);k++){const i=(rnd()*ch.n)|0,mm=matOf(ch.mt[i]);smoke.push({x:ch.sx[i],y:ch.sy[i]-2*ch.dz,r:8+rnd()*12,vr:.25,a:.45,vx:(rnd()-.5)*.4,vy:-.15-rnd()*.2,c:mm.dust||'150,142,128'});}
 }
-const SMAT={2:'160,154,142',12:'130,108,80',3:'130,104,76',10:'160,146,108',5:'90,110,70',4:'110,100,90'};
 function hitStatic(oi,P,dir,rad){
-  const ob=objs[oi];let metal=0;
-  const n=oi===0?0:eraseSphere(oi,P[0],P[1],P[2],rad,(x,y,z,c)=>{if(rnd()<.85)spawnP(x,y,z,-dir[0]*(.3+rnd()*.6)+(rnd()-.5)*.5,-dir[1]*(.3+rnd()*.6)+(rnd()-.5)*.5,.25+rnd()*.6,rgbOf(c),0);});
-  if(ob.mat===4||ob.mat===9)metal=1;
-  for(let k=0;k<(metal?10:3);k++)spawnP(P[0],P[1],P[2],(rnd()-.5)*1.2-dir[0]*.5,(rnd()-.5)*1.2-dir[1]*.5,rnd()*.9,0,2);
-  const s=proj(...P);smoke.push({x:s[0],y:s[1],r:3+rad*2,vr:.18,a:.5,vx:(rnd()-.5)*.3,vy:-.12,c:SMAT[ob.mat]||'140,130,120'});
-  if(oi===0){scorchGround(P[0],P[1],1.5);for(let k=0;k<8;k++)spawnP(P[0],P[1],.2,(rnd()-.5)*.6-dir[0]*.3,(rnd()-.5)*.6-dir[1]*.3,.3+rnd()*.5,rgb(96,80,58),0);return;}
+  const ob=objs[oi];lastHitDir=dir;
+  if(oi===0){scorchGround(P[0],P[1],1.5);for(let k=0;k<10;k++)spawnP(P[0],P[1],.2,(rnd()-.5)*.6-dir[0]*.3,(rnd()-.5)*.6-dir[1]*.3,.3+rnd()*.5,jr(96,80,58,10),0,1);
+    smoke.push({x:proj(...P)[0],y:proj(...P)[1],r:4,vr:.18,a:.45,vx:0,vy:-.12,c:'130,108,80'});return;}
+  remClear();
+  const n=eraseSphere(oi,P[0],P[1],P[2],rad,true,false);
+  // which material was hit (dominant among removed or under the point)
+  let hm=REM.mt[0]||2;{const c={};for(const m of REM.mt)c[m]=(c[m]||0)+1;let b=0;for(const m in c)if(c[m]>b){b=c[m];hm=+m;}}
+  makeFragments(REM,(x,y,z,V)=>{const s=.3+rnd()*.6;V[0]=-dir[0]*s;V[1]=-dir[1]*s;V[2]=.2+rnd()*.5;},{mean:5,dust:.35});
+  const sparks=hm===M_METAL||ob.ex?14:hm===M_GLASS?0:2;
+  for(let k=0;k<sparks;k++)spawnP(P[0],P[1],P[2],(rnd()-.5)*1.2-dir[0]*.5,(rnd()-.5)*1.2-dir[1]*.5,rnd()*.9,0,2);
+  const mm=matOf(hm),s=proj(...P);if(mm.dust)smoke.push({x:s[0],y:s[1],r:3+rad*2,vr:.18,a:.5,vx:(rnd()-.5)*.3,vy:-.12,c:mm.dust});
   if(n)checkSupport(oi);
   if(ob.ex&&n&&!ob.boom){ob.boom=true;pending.push({x:ob.cx,y:ob.cy,z:ob.cz,t:5+rnd()*8});}
 }
 function scorchGround(x,y,r){const g=objs[0],P=proj(x,y,0),rx=r*2.6+2,ry=r*1.4+2,L=g.layers[0];
   for(let sy=Math.floor(P[1]-ry);sy<=P[1]+ry;sy++)for(let sx=Math.floor(P[0]-rx);sx<=P[0]+rx;sx++){const u=sx-g.x0,v=sy-g.y0;if(u<0||v<0||u>=g.w||v>=g.h)continue;const k=v*g.w+u;if(!L.col[k])continue;toWorld(sx,L.dep[k],L.zh[k],TW);const d=Math.hypot(TW[0]-x,TW[1]-y);if(d<r)L.col[k]=darkP(L.col[k],.4+.5*d/r);}
   dirty(P[0]-rx,P[1]-ry,P[0]+rx,P[1]+ry);}
+
 
 // ================= characters runtime =================
 let chars=[],player=null,detached=[],emitters=[],refs=[];
@@ -460,14 +649,13 @@ function updGrenades(ts){for(let k=grenades.length-1;k>=0;k--){const g=grenades[
 
 // ================= explosions =================
 function explode(x,y,z,r,pow){
-  const prob=Math.min(1,.9);let budget=9000;const touched=[];
-  for(let oi=0;oi<objs.length;oi++){
-    const ob=objs[oi];
-    const n=eraseSphere(oi,x,y,z,oi===0?0:r,(vx,vy,vz,c,dist)=>{
-      if(budget<=0||rnd()>prob){if(rnd()<.3)placeDebris(vx,vy,rgbOf(c));return;}budget--;
-      let dx=vx-x,dy=vy-y,dz=vz-z;const d=Math.hypot(dx,dy,dz)||1;dx/=d;dy/=d;dz/=d;const s=pow*(.35+rnd()*.9)*Math.max(.15,1-d/(r+2))+.2;
-      spawnP(vx,vy,vz,dx*s,dy*s,dz*s*.8+.35+rnd()*.6,rgbOf(c),0);});
-    if(n&&oi!==0&&oi!==DEB)touched.push(oi);
+  const touched=[];
+  const vel=(vx,vy,vz,V)=>{let dx=vx-x,dy=vy-y,dz=vz-z;const d=Math.hypot(dx,dy,dz)||1;dx/=d;dy/=d;dz/=d;const s=pow*(.35+rnd()*.8)*Math.max(.15,1-d/(r+2))+.2;V[0]=dx*s;V[1]=dy*s;V[2]=dz*s*.8+.35+rnd()*.5;};
+  for(let oi=1;oi<objs.length;oi++){
+    const ob=objs[oi];remClear();
+    const n=eraseSphere(oi,x,y,z,r,true,true);
+    if(n){lastHitDir=[ob.cx-x,ob.cy-y,0];const l=Math.hypot(lastHitDir[0],lastHitDir[1])||1;lastHitDir[0]/=l;lastHitDir[1]/=l;makeFragments(REM,vel,{mean:9,dust:.3});}
+    if(n&&oi!==DEB)touched.push(oi);
     if(n&&ob.ex&&!ob.boom){ob.boom=true;pending.push({x:ob.cx,y:ob.cy,z:ob.cz,t:5+rnd()*8});}
   }
   scorchGround(x,y,r+3);
@@ -647,12 +835,18 @@ function drawWorld(){
   for(const ch of chars)ring(ch);
   for(const ch of chars)drawChar(ch);
   for(const dp of detached)drawDetached(dp);
+  drawFrags();drawTopples();
   for(const c of chunks){const dz=c.dz;for(let j=0;j<c.n;j++){const sx=c.sx[j],sy=Math.round(c.sy[j]-2*dz);if(sy<0||sy>=BH)continue;const p=sy*BW+sx,d=c.dep[j]+dz;if(d>fDep[p]){fDep[p]=d;fCol[p]=c.col[j];fPick[p]=-1;}}}
   for(let i=0;i<np;i++){
     const x=px[i],y=py[i],z=pz[i],sx=Math.round((x-y)*2+OX),sy=Math.round(x+y-2*z+OY),d=x+y+z;if(sx<0||sy<0||sx>BW-2||sy>BH-2)continue;
     const k=pk[i],q=sy*BW+sx;
     if(k===2){if(d>fDep[q]-1){fCol[q]=0xff70d0ff;fCol[q+1]=0xff70d0ff;}continue;}
     const c=shp(pc[i],1);
+    if(k===4){if(d>fDep[q]){fCol[q]=((pl[i]+i)%9<2)?0xffffffff:blendP(c,0xfff0e8d8,.4);fDep[q]=d;}continue;}
+    if(k===3){if(d>fDep[q]){fCol[q]=((pl[i]*.2+i)&1)?c:darkP(c,.8);fDep[q]=d;}continue;}
+    if(k===6){if(d>fDep[q]){fCol[q]=c;fDep[q]=d;}continue;}
+    if(k===5){const vx=(pvx[i]-pvy[i])*2,vy=(pvx[i]+pvy[i]-2*pvz[i]),l=Math.hypot(vx,vy)||1,ux=vx/l,uy=vy/l;
+      for(let t=-1;t<=1;t++){const X=Math.round(sx+ux*t),Y=Math.round(sy+uy*t);if(X<0||Y<0||X>=BW||Y>=BH)continue;const p=Y*BW+X;if(d>fDep[p]){fCol[p]=t?darkP(c,.8):c;fDep[p]=d;}}continue;}
     if(d>fDep[q]){fCol[q]=c;fDep[q]=d;}
     if(k===0||rnd()<.5){if(d>fDep[q+1]){fCol[q+1]=darkP(c,.85);fDep[q+1]=d;}}
   }
@@ -757,7 +951,7 @@ addEventListener('resize',fit);new ResizeObserver(fit).observe(stage);
 
 let ready=false;
 function reset(){
-  np=0;chunks=[];detached=[];emitters=[];grenades=[];pending=[];tracers=[];flashes=[];smoke=[];fire=[];dHt.fill(0);
+  np=0;chunks=[];frags=[];topples=[];sandLeaks=[];debMt.fill(0);detached=[];emitters=[];grenades=[];pending=[];tracers=[];flashes=[];smoke=[];fire=[];dHt.fill(0);
   resetWorld();spawnChars();computeShadows();compose(0,0,BW-1,BH-1);
   document.getElementById('dead').hidden=true;
   logEl.innerHTML='';log('Ulica Kolejowa. Złomiarze za barierami, jeden na dachu pawilonu, wilczur przy wraku.');log('WASD chodzisz. Karabin odstrzeli kończynę, ładunek pod kamienicą ją zawali.');
@@ -768,7 +962,7 @@ let last=performance.now(),fc=0,fpsT=last,fps=60;
 function frame(now){
   const dt=Math.min(50,now-last);last=now;const ts=(dt/16.67)*(slow?.25:1);
   if(cool>0)cool-=dt/16.67;
-  updChars(ts);updDetached(ts);updEmitters(ts);updChunks(ts);updParticles(ts);updGrenades(ts);updFx(ts);enemyAI(ts);
+  updChars(ts);updDetached(ts);updEmitters(ts);updChunks(ts);updTopples(ts);updFrags(ts);updSandLeaks(ts);updParticles(ts);updGrenades(ts);updFx(ts);enemyAI(ts);
   flushDirty(ts);
   fCol.set(sCol);fDep.set(sDep);fZ.set(sZ);fPick.set(sObj);shMark.fill(0);
   drawWorld();
@@ -776,7 +970,7 @@ function frame(now){
   if(shake>.05){cv.style.transform=`translate(${(rnd()-.5)*shake}px,${(rnd()-.5)*shake}px)`;shake*=.86;}else if(shake){shake=0;cv.style.transform='';}
   if(mx>=0){const p=fPick[my*BW+mx];
     if(p<=-2){const r=refs[-p-2];if(r&&r.ch){tip.textContent=`${r.ch.name} · ${r.ch.T.defs[r.pi].label} · PŻ ${Math.max(0,Math.round(r.ch.hp[r.pi]))}`;}else if(r){tip.textContent=`${r.dp.label} (${r.dp.owner})`;}tip.hidden=false;}
-    else if(p>0&&p<DEB){tip.textContent=objs[p].name;tip.hidden=false;}else tip.hidden=true;}
+    else if(p>0&&p<DEB){const ob=objs[p],k=(my-ob.y0)*ob.w+(mx-ob.x0),ly=ob.layers[sLay[my*BW+mx]]||ob.layers[0],m=ly.mt?ly.mt[k]:0;tip.textContent=ob.name+(m?' · '+PNAME[m]:'');tip.hidden=false;}else tip.hidden=true;}
   fc++;if(now-fpsT>500){fps=Math.round(fc*1000/(now-fpsT));fc=0;fpsT=now;let cv2=0;for(const c of chunks)cv2+=c.n;stats.textContent=`${fps} kl./s · cząstki ${np}${cv2?` · spada ${cv2}`:''}${slow?' · ZWOLNIONE':''}`;}
   requestAnimationFrame(frame);
 }

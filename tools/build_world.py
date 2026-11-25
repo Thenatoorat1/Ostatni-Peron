@@ -129,7 +129,8 @@ def build_interior(X1, Y1, Wd, Dd, floors, Htop, wall=3):
         col[speck] = [120, 108, 92]
         col = np.clip(col * 0.78, 0, 255)
         dep = x0r + y0r + 3 * z
-        return (col, valid, dep, z)
+        imt = np.where(kind == 1, 6, 5).astype(np.uint8)
+        return (col, valid, dep, z, imt)
     return f
 
 def place_box_img(fname, box, scale, name, mat, X1, Y1, Htop=None, interior=None, blocks=True, ex=False, flatroof=False, floors=None):
@@ -257,37 +258,76 @@ for side in range(1, 14):
 Image.fromarray(out).save(OUT + 'ground.png', optimize=True)
 
 # ---------------- pack objects ----------------
+def hsv(rgb):
+    r, g, b = rgb[..., 0] / 255, rgb[..., 1] / 255, rgb[..., 2] / 255
+    mx = np.maximum(np.maximum(r, g), b); mn = np.minimum(np.minimum(r, g), b); d = mx - mn + 1e-6
+    h = np.where(mx == r, ((g - b) / d) % 6, np.where(mx == g, (b - r) / d + 2, (r - g) / d + 4)) * 60
+    return h, np.where(mx > 0, d / (mx + 1e-6), 0), mx
+# materials: 1 soil 2 concrete 3 brick 4 stone 5 plaster 6 wood 7 glass 8 metal 9 tile 10 foliage 11 sand
+def classify(name, rgb, zh, mask):
+    h, sat, v = hsv(rgb); r, g, b = rgb[..., 0], rgb[..., 1], rgb[..., 2]
+    mt = np.full(mask.shape, 2, np.uint8)
+    brickish = ((h < 22) | (h > 340)) & (sat > .32) & (v > .2)
+    brown = (h >= 16) & (h < 50) & (sat > .25) & (v < .58)
+    darkgl = (v < .27) & (sat < .38)
+    bluegl = (b > r + 6) & (sat < .4) & (v > .3)
+    green = (h > 45) & (h < 175) & (sat > .16)
+    if name == 'Kamienica':
+        eave = np.percentile(zh[mask], 55)
+        roof = zh > eave
+        mt[:] = 5; mt[brickish | brown] = 3
+        mt[roof] = 9
+        mt[roof & (sat < .5) & (h > 15) & (h < 55) & (v < .62)] = 6
+        mt[roof & (sat < .18)] = 5
+        mt[(darkgl | bluegl) & ~roof] = 7
+        mt[(h > 180) & (h < 250) & (sat < .3) & (v > .3) & (v < .62) & ~bluegl] = 8
+    elif name == 'Pawilon handlowy':
+        low = zh < np.percentile(zh[mask], 60); mt[:] = 2; mt[(darkgl | bluegl) & low] = 7; mt[(h > 8) & (h < 40) & (sat > .35) & (v < .6) & low] = 8
+    elif name == 'Wrak samochodu':
+        mt[:] = 8; mt[(bluegl | (darkgl & (v > .1))) & (zh > np.percentile(zh[mask], 45))] = 7
+    elif name in ('Beczka', 'Beczka z paliwem', 'Latarnia'): mt[:] = 8
+    elif name == 'Worki z piaskiem': mt[:] = 11
+    elif name == 'Bariera betonowa': mt[:] = 2
+    elif name == 'Skrzynie': mt[:] = 6
+    elif name in ('Trawa', 'Krzak'): mt[:] = 10
+    elif name == 'Gruz': mt[:] = 2; mt[brickish] = 3
+    elif name in ('Sosna', 'Brzoza'):
+        mt[:] = 6; mt[green | ((h > 28) & (h < 75) & (sat > .42) & (v > .42))] = 10
+    return mt
 tiles = []
 meta = []
 for o in objects:
     L = []
-    for (rgb, m, dep, zh) in o['layers']:
+    for li, lay in enumerate(o['layers']):
+        rgb, m, dep, zh = lay[:4]
+        mtl = lay[4] if len(lay) > 4 else classify(o['name'], rgb, zh, m)
         hgt, wid = m.shape
         c = np.zeros((hgt, wid, 4), np.uint8); c[..., :3] = np.clip(rgb, 0, 255); c[..., 3] = np.where(m, 255, 0)
         g = np.zeros((hgt, wid, 3), np.uint8)
         d16 = np.clip(np.round(dep * 16), 0, 65535).astype(np.int64)
         g[..., 0] = d16 >> 8; g[..., 1] = d16 & 255; g[..., 2] = np.clip(np.round(zh), 0, 255)
-        tiles.append((c, g)); L.append(len(tiles) - 1)
+        tiles.append((c, g, np.where(m, mtl, 0).astype(np.uint8))); L.append(len(tiles) - 1)
     s = o['shape']
     if s[0] == 'box': fp = [s[1] - s[3], s[2] - s[4], s[1], s[2]]
     else: fp = [s[1] - s[3], s[2] - s[3], s[1] + s[3], s[2] + s[3]]
     # centre (for barrel explosions etc.)
-    rgb, m, dep, zh = o['layers'][0]
+    rgb, m, dep, zh = o['layers'][0][:4]
     ys_, xs_ = np.nonzero(m); dd = dep[m].mean(); zz = zh[m].mean(); sxm = xs_.mean() + o['x0']
     df = (sxm - OX) / 2; ss = dd - zz
     meta.append(dict(name=o['name'], mat=o['mat'], ex=o['ex'], x0=o['x0'], y0=o['y0'], w=o['w'], h=o['h'], layers=L, thick=o['thick'],
-                     fp=[round(v, 1) for v in fp], blocks=o['blocks'], c=[round((ss + df) / 2, 1), round((ss - df) / 2, 1), round(zz, 1)]))
+                     fp=[round(v, 1) for v in fp], blocks=o['blocks'], topple=o['name'] in ('Sosna', 'Brzoza', 'Latarnia'), c=[round((ss + df) / 2, 1), round((ss - df) / 2, 1), round(zz, 1)]))
 AW = 2048; x = y = rowh = 0; pos = {}
 for i in sorted(range(len(tiles)), key=lambda i: -tiles[i][0].shape[0]):
     hgt, wid = tiles[i][0].shape[:2]
     if x + wid > AW: x = 0; y += rowh + 1; rowh = 0
     pos[i] = (x, y); x += wid + 1; rowh = max(rowh, hgt)
 AH = y + rowh + 1
-CA = np.zeros((AH, AW, 4), np.uint8); GA = np.zeros((AH, AW, 3), np.uint8)
-for i, (c, g) in enumerate(tiles):
-    px_, py_ = pos[i]; hgt, wid = c.shape[:2]; CA[py_:py_ + hgt, px_:px_ + wid] = c; GA[py_:py_ + hgt, px_:px_ + wid] = g
+CA = np.zeros((AH, AW, 4), np.uint8); GA = np.zeros((AH, AW, 3), np.uint8); MA = np.zeros((AH, AW), np.uint8)
+for i, (c, g, mm) in enumerate(tiles):
+    px_, py_ = pos[i]; hgt, wid = c.shape[:2]; CA[py_:py_ + hgt, px_:px_ + wid] = c; GA[py_:py_ + hgt, px_:px_ + wid] = g; MA[py_:py_ + hgt, px_:px_ + wid] = mm
 Image.fromarray(CA).save(OUT + 'world_color.png', optimize=True)
 Image.fromarray(GA).save(OUT + 'world_geo.png', optimize=True)
+Image.fromarray(MA, 'L').convert('RGB').save(OUT + 'world_mat.png', optimize=True)
 json.dump(dict(W=W, D=D, H=H, objects=meta, rects=[[pos[i][0], pos[i][1], tiles[i][0].shape[1], tiles[i][0].shape[0]] for i in range(len(tiles))]),
           open(OUT + 'world.json', 'w'), separators=(',', ':'))
 print('objects', len(objects), 'atlas', AW, AH)
@@ -295,7 +335,8 @@ print('objects', len(objects), 'atlas', AW, AH)
 prev = out.astype(np.float32).copy(); zb = np.full((BH, BW), -1e9)
 yyg = np.arange(BH)[:, None] - OY + 0.0; zb[:] = np.where(inside, yyg + 0 * xx, -1e9)
 for o in objects:
-    for (rgb, m, dep, zh) in o['layers']:
+    for lay in o['layers']:
+        rgb, m, dep, zh = lay[:4]
         hgt, wid = m.shape; ys_, xs_ = np.nonzero(m)
         Y = ys_ + o['y0']; X = xs_ + o['x0']; ok = (Y >= 0) & (Y < BH) & (X >= 0) & (X < BW)
         Y, X, yy_, xx_ = Y[ok], X[ok], ys_[ok], xs_[ok]
