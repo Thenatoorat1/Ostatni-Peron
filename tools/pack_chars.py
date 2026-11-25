@@ -6,14 +6,14 @@ def srgb2lin(v):
 out_meta = {}
 tiles = []  # (key, color rgba uint8, geo rgba uint8)
 for key, kind in (('ty', 'human'), ('zlom', 'human'), ('pies', 'dog')):
-    meta = json.load(open(f'out_{key}/meta.json'))
+    meta = json.load(open(f'out2_{key}/meta.json'))
     parts = meta['parts']; frames = []; err = []
     for d in range(8):
-        for pose in range(7):
+        for pose in range(len(meta['poseNames'])):
             fr = []
             for p in parts:
-                ci = np.asarray(Image.open(f'out_{key}/c_{pose}_{d}_{p}.png')); c = ci.astype(np.float64) / (65535.0 if ci.dtype == np.uint16 else 255.0)
-                gi = np.asarray(Image.open(f'out_{key}/p_{pose}_{d}_{p}.png')); g = gi.astype(np.float64) / (65535.0 if gi.dtype == np.uint16 else 255.0)
+                ci = np.asarray(Image.open(f'out2_{key}/c_{pose}_{d}_{p}.png')); c = ci.astype(np.float64) / (65535.0 if ci.dtype == np.uint16 else 255.0)
+                gi = np.asarray(Image.open(f'out2_{key}/p_{pose}_{d}_{p}.png')); g = gi.astype(np.float64) / (65535.0 if gi.dtype == np.uint16 else 255.0)
                 m = (c[..., 3] > 0.5) & (g[..., 3] > 0.5)
                 if not m.any(): fr.append(None); continue
                 ys, xs = np.nonzero(m); y0, y1, x0, x1 = ys.min(), ys.max() + 1, xs.min(), xs.max() + 1
@@ -21,7 +21,13 @@ for key, kind in (('ty', 'human'), ('zlom', 'human'), ('pies', 'dog')):
                 dep = gl[..., 0] * 128 - 64; zh = gl[..., 1] * 64
                 # consistency check: sy = (x+y) - 2z + AY ; depth = x+y+z  ->  sy = dep - 3z + AY
                 sy_pred = dep - 3 * zh + AY
-                err.append(np.abs(sy_pred[m] - (ys + 0.5)).mean())
+                ee = np.abs(sy_pred[m] - (ys + 0.5)).mean()
+                if ee > 2:
+                    yy = np.arange(c.shape[0])[:, None] + 0.5
+                    if np.abs(zh[m] - zh[m].mean()).max() < 1e-3 or zh[m].max() >= 63.9: zh = np.broadcast_to((dep - yy + AY) / 3, dep.shape).copy()
+                    else: dep = yy - AY + 3 * zh
+                    ee = np.abs(dep - 3 * zh + AY - yy)[m].mean()
+                err.append(ee)
                 col = np.zeros((y1 - y0, x1 - x0, 4), np.uint8)
                 a = np.clip(c[..., 3:4], 1e-4, 1)
                 rgb = np.clip(c[..., :3] / a, 0, 1)  # un-premultiply (straight already but safe)
@@ -35,7 +41,7 @@ for key, kind in (('ty', 'human'), ('zlom', 'human'), ('pies', 'dog')):
                 tiles.append((col, geo)); fr.append([len(tiles) - 1, int(x0 - AX), int(y0 - AY)])
             frames.append(fr)
     print(key, 'mean sy err px', round(float(np.mean(err)), 3), 'max', round(float(np.max(err)), 3))
-    out_meta[key] = {'parts': parts, 'frames': frames, 'joints': meta['poses']}
+    out_meta[key] = {'parts': parts, 'frames': frames, 'joints': [meta['poses'][str(i)]['joints'] for i,n in enumerate(meta['poseNames'])], 'poseNames': meta['poseNames']}
 # shelf pack
 W = 1024; x = y = rowh = 0; rects = []
 order = sorted(range(len(tiles)), key=lambda i: -tiles[i][0].shape[0])
