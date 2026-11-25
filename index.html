@@ -123,7 +123,7 @@ function jr(r,g,b,a){const n=(rnd()-.5)*2*a;return rgb(r+n,g+n,b+n);}
 function scl(c,f){return rgb(((c>>16)&255)*f,((c>>8)&255)*f,(c&255)*f);}
 function mixRGB(a,b,t){return rgb(((a>>16)&255)*(1-t)+((b>>16)&255)*t,((a>>8)&255)*(1-t)+((b>>8)&255)*t,(a&255)*(1-t)+(b&255)*t);}
 function shp(c,f){let r=((c>>16)&255)*f,g=((c>>8)&255)*f,b=(c&255)*f;if(r>255)r=255;if(g>255)g=255;if(b>255)b=255;return (0xff000000|((b|0)<<16)|((g|0)<<8)|(r|0))>>>0;}
-function darkP(c,f){const r=(c&255)*f,g=((c>>8)&255)*f,b=((c>>16)&255)*f;return (0xff000000|((b|0)<<16)|((g|0)<<8)|(r|0))>>>0;}
+function darkP(c,f){f=f<0?0:f>1?1:f;const r=(c&255)*f,g=((c>>8)&255)*f,b=((c>>16)&255)*f;return (0xff000000|((b|0)<<16)|((g|0)<<8)|(r|0))>>>0;}
 function blendP(a,b,t){const u=1-t;return (0xff000000|((((a>>16)&255)*u+((b>>16)&255)*t)<<16)|((((a>>8)&255)*u+((b>>8)&255)*t)<<8)|(((a&255)*u+(b&255)*t)|0))>>>0;}
 function rgbOf(c){return ((c&255)<<16)|(c&0xff00)|((c>>>16)&255);}
 function bloodC(){const v=rnd();return rgb(110+v*60,8+v*12,6+v*10);}
@@ -467,7 +467,7 @@ function eraseSphere(oi,cx,cy,cz,r,collect,scorch,only){
       toWorld(x,Dp[k],Z[k],TW);const dist=Math.hypot(TW[0]-cx,TW[1]-cy,TW[2]-cz),rf=only?1:matOf(m).rf,rr=r*rf*(.85+.3*hsh(x,y,3));
       if(dist<rr){C[k]=0;n++;if(collect)remPush(x,y,c,Dp[k],Z[k],m);if(m===M_SAND&&!sandAt)sandAt=[TW[0],TW[1],TW[2]];}
       else if(m===M_METAL&&dist<r*1.2){C[k]=darkP(c,.82);}
-      else if(scorch&&dist<r+3){C[k]=darkP(c,.45+.5*(dist-r)/3);}
+      else if(scorch&&dist<r+3){C[k]=darkP(c,.45+.5*Math.min(1,Math.max(0,(dist-rr)/3)));}
     }}
   if(sandAt&&sandLeaks.length<30){sandLeaks.push({x:sandAt[0],y:sandAt[1],z:sandAt[2],life:260,c:rgb(196,170,112)});sfx('piasek',sandAt[0],sandAt[1],sandAt[2],.7);}
   if(n||scorch){dirty(ax0,ay0,ax1,ay1);if(oi!==0&&oi!==DEB)shadowDirty=true;}
