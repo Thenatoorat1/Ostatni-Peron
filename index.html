@@ -17,7 +17,7 @@ html,body{height:100%}
 body{background:var(--bg);color:var(--text);font-family:var(--f-ui);overflow:hidden;margin:0}
 #app{position:fixed;inset:0;display:flex;flex-direction:column}
 #stage{flex:1;min-height:0;position:relative;display:grid;place-items:center;overflow:hidden;background:var(--bg)}
-#c{image-rendering:pixelated;image-rendering:crisp-edges;cursor:none;touch-action:none;display:block}
+#c{image-rendering:pixelated;image-rendering:crisp-edges;cursor:none;touch-action:none;display:block;position:absolute;left:0;top:0}
 #vig{position:absolute;inset:0;pointer-events:none;background:radial-gradient(ellipse at 50% 45%,transparent 65%,rgba(0,0,0,.35))}
 #top{position:absolute;left:max(16px,env(safe-area-inset-left,0px));top:calc(12px + env(safe-area-inset-top,0px));background:rgba(10,9,7,.78);border:1px solid #6b5c3c;padding:8px 14px;display:flex;flex-direction:column;gap:2px;max-width:min(600px,calc(100% - 32px))}
 #top h1{margin:0;font-size:22px;font-weight:700;letter-spacing:.12em;color:var(--amber)}
@@ -55,10 +55,6 @@ button kbd{font-family:var(--f-term);font-size:17px;color:var(--amber);margin-ri
   <div id="stage">
     <canvas id="c" aria-label="Izometryczna scena z prerenderowanych sprite'ów: zrujnowana kamienica, pawilon, wrak auta, złomiarze i wilczur"></canvas>
     <div id="vig"></div>
-    <div id="top">
-      <h1>ULICA KOLEJOWA · PRERENDER</h1>
-      <p>Każdy materiał niszczy się inaczej: cegła i beton w gruz, drewno w drzazgi i deski, szkło w odłamki, z worków sypie się piasek. WASD ruch, celuj i klikaj. 1–4 broń, Spacja zwolnione tempo, T wrogowie atakują, R od nowa, V podgląd sprite'ów.</p>
-    </div>
     <div id="tip" hidden></div>
     <div id="dead" hidden><div>NIE ŻYJESZ · R</div></div>
     <section id="sheet" hidden aria-label="Arkusz sprite'ów">
@@ -89,6 +85,16 @@ button kbd{font-family:var(--f-term);font-size:17px;color:var(--amber);margin-ri
         <button id="bFire"><kbd>T</kbd>Atak wroga</button>
         <button id="bSheet"><kbd>V</kbd>Sprite'y</button>
         <button id="bReset"><kbd>R</kbd>Od nowa</button>
+      </div>
+    </div>
+    <div class="grp">
+      <div class="lbl">KAMERA I DŹWIĘK</div>
+      <div id="side2" style="display:flex;gap:6px;flex-wrap:wrap">
+        <button id="bRotL" aria-label="Obróć kamerę w lewo"><kbd>Q</kbd>⟲</button>
+        <button id="bRotR" aria-label="Obróć kamerę w prawo"><kbd>E</kbd>⟳</button>
+        <button id="bZoomIn" aria-label="Przybliż"><kbd>+</kbd>Zoom</button>
+        <button id="bZoomOut" aria-label="Oddal"><kbd>−</kbd>Zoom</button>
+        <button id="bMute"><kbd>M</kbd>Dźwięk</button>
       </div>
     </div>
     <div class="grp"><div class="lbl">STAN</div><div id="stats">—</div></div>
@@ -213,7 +219,7 @@ const M_WOOD=6,M_GLASS=7,M_METAL=8,M_LEAF=10,M_SAND=11;
 const BRITTLE=new Uint8Array(16);[1,2,3,4,5,9].forEach(m=>BRITTLE[m]=1);
 // rf: how far a hit reaches into this material; k: particle kind for loose bits; dust: smoke colour
 const MAT=[null,{rf:1,k:0,dust:'130,108,80'},{rf:1,k:0,dust:'176,172,162'},{rf:1,k:0,dust:'168,104,80'},{rf:.9,k:0,dust:'150,150,150'},{rf:1.15,k:0,dust:'206,198,182'},
-  {rf:.85,k:5,dust:'140,110,78'},{rf:1.9,k:4,dust:null},{rf:.45,k:0,dust:null},{rf:1.25,k:0,dust:'176,104,74'},{rf:1.45,k:3,dust:null},{rf:1.05,k:6,dust:'206,186,128'},{rf:1,k:1,dust:null}];
+  {rf:.35,k:5,dust:'140,110,78'},{rf:1.9,k:4,dust:null},{rf:.45,k:0,dust:null},{rf:1.25,k:0,dust:'176,104,74'},{rf:1.45,k:3,dust:null},{rf:1.05,k:6,dust:'206,186,128'},{rf:1,k:1,dust:null}];
 const matOf=m=>MAT[m]||MAT[2];
 const PNAME=['Grunt','Grunt','Beton','Cegła','Kamień','Tynk','Drewno','Szkło','Metal','Dachówka','Liście','Piasek'];
 
@@ -317,7 +323,7 @@ function makeFragments(R,vel,o){
   const n=R.sx.length;if(!n)return;
   const mean=o.mean||8,axis=o.axis||[0,1];
   const groups={};
-  for(let i=0;i<n;i++){const m=R.mt[i]||2,cls=m===M_GLASS||m===M_LEAF||m===M_SAND?'loose':m===M_WOOD?'wood':m===M_METAL?'metal':'brittle';(groups[cls]||(groups[cls]=[])).push(i);}
+  for(let i=0;i<n;i++){const m=R.mt[i]||2,cls=(m===M_LEAF&&o.leafChunks)?'leafc':m===M_GLASS||m===M_LEAF||m===M_SAND?'loose':m===M_WOOD?'wood':m===M_METAL?'metal':'brittle';(groups[cls]||(groups[cls]=[])).push(i);}
   const V=[0,0,0];
   for(const cls in groups){
     const idx=groups[cls];
@@ -327,7 +333,8 @@ function makeFragments(R,vel,o){
         toWorld(R.sx[i],R.dep[i],R.zh[i],TW);vel(TW[0],TW[1],TW[2],V);spawnBit(TW[0],TW[1],TW[2],V[0]+(rnd()-.5)*.4,V[1]+(rnd()-.5)*.4,V[2]+rnd()*.3,rgbOf(R.col[i]),m);}
       continue;
     }
-    const sz=cls==='metal'?mean*2.5:cls==='wood'?mean*1.6:mean;
+    if(cls==='leafc')for(const i of idx)if(rnd()<.08){toWorld(R.sx[i],R.dep[i],R.zh[i],TW);spawnBit(TW[0],TW[1],TW[2],(rnd()-.5)*.2,(rnd()-.5)*.2,.05,rgbOf(R.col[i]),M_LEAF);}
+    const sz=cls==='metal'?mean*2.5:cls==='wood'?mean*1.6:cls==='leafc'?mean*.6:mean;
     const K=Math.max(1,Math.min(260,Math.round(idx.length/sz)));
     const seeds=[];for(let s=0;s<K;s++){const i=idx[(rnd()*idx.length)|0];const u=rnd();seeds.push([R.sx[i],R.sy[i],cls==='brittle'?.35+2.6*u*u*u:.6+rnd()*.8]);}
     const ax=axis[0],ay=axis[1],cell=new Int32Array(idx.length);
@@ -390,7 +397,7 @@ function updFrags(ts){
     if(nz-f.ext<=gh){
       const imp=-f.vz;
       if(f.brittle&&imp>.85&&f.n>=24&&f.gen<2){frags.splice(i,1);f.z=gh+f.ext;splitFrag(f,imp);continue;}
-      if(f.mt===M_WOOD&&imp>.9&&f.n>=16&&f.gen<1&&rnd()<.5){frags.splice(i,1);f.z=gh+f.ext;splitFrag(f,imp*.6);continue;}
+      if(f.mt===M_WOOD&&imp>1.3&&f.n>=40&&f.gen<1&&rnd()<.3){frags.splice(i,1);f.z=gh+f.ext;splitFrag(f,imp*.6);continue;}
       const rest=f.mt===M_METAL?.35:f.mt===M_WOOD?.3:.12;
       f.z=gh+f.ext;f.vz=imp>.15?imp*rest:0;f.vx*=.5;f.vy*=.5;f.av*=.45;f.x=nx;f.y=ny;
       if(Math.abs(f.vz)<.2&&Math.hypot(f.vx,f.vy)<.1)f.rest++;
@@ -421,7 +428,7 @@ function makeTopple(ob,R,hitDir){
   const L=Math.max(4,cz-minz),H2=L*2.2;
   const ex=px_+fx*H2,ey=py_+fy*H2;if(ex<4||ey<4||ex>W-4||ey>D-4){fx=-fx;fy=-fy;const ex2=px_+fx*H2,ey2=py_+fy*H2;if(ex2<4||ey2<4||ex2>W-4||ey2>D-4){const t=fx;fx=-fy;fy=t;if(px_+fx*H2<4||py_+fy*H2<4||px_+fx*H2>W-4||py_+fy*H2>D-4){fx=-fx;fy=-fy;}}}
   topples.push({n,wx,wy,wz,col:Uint32Array.from(R.col),mt:Uint8Array.from(R.mt),px:px_,py:py_,pz:minz,fx,fy,th:.03,om:.004,k:1.6*G/L,name:ob.name});
-  log(`${ob.name} przewraca się.`,'hit');
+  log(`${ob.name} przewraca się.`,'hit');sfx('drzewo',px_,py_,0,.9);
 }
 function toppleXf(t,i,c,s,o){const rx=t.wx[i]-t.px,ry=t.wy[i]-t.py,rz=t.wz[i]-t.pz,a=rx*t.fx+ry*t.fy,bx=rx-a*t.fx,by=ry-a*t.fy,a2=a*c+rz*s,z2=-a*s+rz*c;o[0]=t.px+bx+a2*t.fx;o[1]=t.py+by+a2*t.fy;o[2]=t.pz+z2;return o;}
 const TV=[0,0,0];
@@ -435,7 +442,7 @@ function updTopples(ts){
     remClear();
     for(let i=0;i<t.n;i++){toppleXf(t,i,c,s,TV);const z=Math.max(0,TV[2]),P=proj(TV[0],TV[1],z);remPush(Math.round(P[0]),Math.round(P[1]),t.col[i],TV[0]+TV[1]+z,z,t.mt[i]);}
     const ax=(t.fx-t.fy)*2,ay=(t.fx+t.fy),al=Math.hypot(ax,ay)||1,sp=t.om*6;
-    makeFragments(REM,(x,y,z,V)=>{const d=Math.hypot(x-t.px,y-t.py);V[0]=t.fx*sp*.15*d/10;V[1]=t.fy*sp*.15*d/10;V[2]=.15+rnd()*.25;},{mean:26,axis:[ax/al,ay/al],dust:.1});
+    makeFragments(REM,(x,y,z,V)=>{const d=Math.hypot(x-t.px,y-t.py);V[0]=t.fx*sp*.08*d/10;V[1]=t.fy*sp*.08*d/10;V[2]=.06+rnd()*.12;},{mean:170,axis:[ax/al,ay/al],dust:0,leafChunks:true});
     shake+=3;
     const P=proj(t.px+t.fx*10,t.py+t.fy*10,0);for(let k=0;k<6;k++)smoke.push({x:P[0]+(rnd()-.5)*40,y:P[1]+(rnd()-.5)*14,r:6+rnd()*8,vr:.2,a:.35,vx:(rnd()-.5)*.4,vy:-.1,c:'150,138,110'});
   }
@@ -450,18 +457,19 @@ function drawTopples(){
 const TW=[0,0,0];
 let sandLeaks=[];
 // erase a sphere of material; each material reacts differently (glass shatters wide, metal only dents)
-function eraseSphere(oi,cx,cy,cz,r,collect,scorch){
+function eraseSphere(oi,cx,cy,cz,r,collect,scorch,only){
   const ob=objs[oi],P=proj(cx,cy,cz),rr0=r*1.9,rx=rr0*2.6+3,ry=rr0*2.9+3;
   const ax0=Math.max(ob.x0,Math.floor(P[0]-rx)),ax1=Math.min(ob.x0+ob.w-1,Math.ceil(P[0]+rx)),ay0=Math.max(ob.y0,Math.floor(P[1]-ry)),ay1=Math.min(ob.y0+ob.h-1,Math.ceil(P[1]+ry));
   if(ax1<ax0||ay1<ay0)return 0;let n=0,sandAt=null;
   for(const ly of ob.layers){const C=ly.col,Dp=ly.dep,Z=ly.zh,MT=oi===DEB?debMt:ly.mt;
     for(let y=ay0;y<=ay1;y++)for(let x=ax0;x<=ax1;x++){const k=(y-ob.y0)*ob.w+(x-ob.x0),c=C[k];if(!c)continue;
-      toWorld(x,Dp[k],Z[k],TW);const dist=Math.hypot(TW[0]-cx,TW[1]-cy,TW[2]-cz),m=MT?MT[k]:2,rf=matOf(m).rf,rr=r*rf*(.85+.3*hsh(x,y,3));
+      const m=MT?MT[k]:2;if(only&&m!==only)continue;
+      toWorld(x,Dp[k],Z[k],TW);const dist=Math.hypot(TW[0]-cx,TW[1]-cy,TW[2]-cz),rf=only?1:matOf(m).rf,rr=r*rf*(.85+.3*hsh(x,y,3));
       if(dist<rr){C[k]=0;n++;if(collect)remPush(x,y,c,Dp[k],Z[k],m);if(m===M_SAND&&!sandAt)sandAt=[TW[0],TW[1],TW[2]];}
       else if(m===M_METAL&&dist<r*1.2){C[k]=darkP(c,.82);}
       else if(scorch&&dist<r+3){C[k]=darkP(c,.45+.5*(dist-r)/3);}
     }}
-  if(sandAt&&sandLeaks.length<30)sandLeaks.push({x:sandAt[0],y:sandAt[1],z:sandAt[2],life:260,c:rgb(196,170,112)});
+  if(sandAt&&sandLeaks.length<30){sandLeaks.push({x:sandAt[0],y:sandAt[1],z:sandAt[2],life:260,c:rgb(196,170,112)});sfx('piasek',sandAt[0],sandAt[1],sandAt[2],.7);}
   if(n||scorch){dirty(ax0,ay0,ax1,ay1);if(oi!==0&&oi!==DEB)shadowDirty=true;}
   return n;
 }
@@ -491,7 +499,7 @@ function checkSupport(oi){
   const ch={n:m,sx:new Int16Array(REM.sx),sy:new Int16Array(REM.sy),col:new Uint32Array(REM.col),dep:new Float32Array(REM.dep),zh:new Float32Array(REM.zh),mt:new Uint8Array(REM.mt),dz:0,vz:0,bot:[]};
   const low=new Map();for(let i=0;i<m;i++){const b=low.get(ch.sx[i]);if(b===undefined||ch.sy[i]>ch.sy[b])low.set(ch.sx[i],i);}
   ch.bot=[...low.values()];chunks.push(ch);
-  if(m>800)log(`${ob.name}: konstrukcja traci oparcie i się wali.`,'hit');
+  if(m>800){log(`${ob.name}: konstrukcja traci oparcie i się wali.`,'hit');sfx('zawalenie',ob.cx,ob.cy,0,1);}
 }
 function updChunks(ts){
   for(let c=chunks.length-1;c>=0;c--){
@@ -515,13 +523,14 @@ function shatter(ch){
 }
 function hitStatic(oi,P,dir,rad){
   const ob=objs[oi];lastHitDir=dir;
-  if(oi===0){scorchGround(P[0],P[1],1.5);for(let k=0;k<10;k++)spawnP(P[0],P[1],.2,(rnd()-.5)*.6-dir[0]*.3,(rnd()-.5)*.6-dir[1]*.3,.3+rnd()*.5,jr(96,80,58,10),0,1);
+  if(oi===0){sfx('ziemia',P[0],P[1],0,.5);scorchGround(P[0],P[1],1.5);for(let k=0;k<10;k++)spawnP(P[0],P[1],.2,(rnd()-.5)*.6-dir[0]*.3,(rnd()-.5)*.6-dir[1]*.3,.3+rnd()*.5,jr(96,80,58,10),0,1);
     smoke.push({x:proj(...P)[0],y:proj(...P)[1],r:4,vr:.18,a:.45,vx:0,vy:-.12,c:'130,108,80'});return;}
   remClear();
   const n=eraseSphere(oi,P[0],P[1],P[2],rad,true,false);
   // which material was hit (dominant among removed or under the point)
   let hm=REM.mt[0]||2;{const c={};for(const m of REM.mt)c[m]=(c[m]||0)+1;let b=0;for(const m in c)if(c[m]>b){b=c[m];hm=+m;}}
   makeFragments(REM,(x,y,z,V)=>{const s=.3+rnd()*.6;V[0]=-dir[0]*s;V[1]=-dir[1]*s;V[2]=.2+rnd()*.5;},{mean:5,dust:.35});
+  sfx(MATSND[hm]||'mur',P[0],P[1],P[2],.55);
   const sparks=hm===M_METAL||ob.ex?14:hm===M_GLASS?0:2;
   for(let k=0;k<sparks;k++)spawnP(P[0],P[1],P[2],(rnd()-.5)*1.2-dir[0]*.5,(rnd()-.5)*1.2-dir[1]*.5,rnd()*.9,0,2);
   const mm=matOf(hm),s=proj(...P);if(mm.dust)smoke.push({x:s[0],y:s[1],r:3+rad*2,vr:.18,a:.5,vx:(rnd()-.5)*.3,vy:-.12,c:mm.dust});
@@ -531,6 +540,112 @@ function hitStatic(oi,P,dir,rad){
 function scorchGround(x,y,r){const g=objs[0],P=proj(x,y,0),rx=r*2.6+2,ry=r*1.4+2,L=g.layers[0];
   for(let sy=Math.floor(P[1]-ry);sy<=P[1]+ry;sy++)for(let sx=Math.floor(P[0]-rx);sx<=P[0]+rx;sx++){const u=sx-g.x0,v=sy-g.y0;if(u<0||v<0||u>=g.w||v>=g.h)continue;const k=v*g.w+u;if(!L.col[k])continue;toWorld(sx,L.dep[k],L.zh[k],TW);const d=Math.hypot(TW[0]-x,TW[1]-y);if(d<r)L.col[k]=darkP(L.col[k],.4+.5*d/r);}
   dirty(P[0]-rx,P[1]-ry,P[0]+rx,P[1]+ry);}
+
+
+// ================= audio (sounds and music generated in Magnific) =================
+const SFX_FILES=['karabin','strzelba','granat','ladunek','szklo','drewno','mur','zawalenie','drzewo','metal','ziemia','pies_szczek','pies_gryz','krzyk','upadek','granat_odbicie','piasek','wiatr'];
+let AC=null,SFX={},musicEl=null,sfxGain=null,musicGain=null,muted=false,audioStarting=false;
+async function initAudio(){
+  if(AC||audioStarting)return;audioStarting=true;
+  try{
+    AC=new (window.AudioContext||window.webkitAudioContext)();
+    sfxGain=AC.createGain();sfxGain.gain.value=.85;sfxGain.connect(AC.destination);
+    musicGain=AC.createGain();musicGain.gain.value=.32;musicGain.connect(AC.destination);
+    musicEl=new Audio(ASSET+'snd/muzyka.mp3');musicEl.loop=true;musicEl.crossOrigin='anonymous';
+    try{AC.createMediaElementSource(musicEl).connect(musicGain);}catch(e){musicEl.volume=.32;}
+    musicEl.play().catch(()=>{});
+    await Promise.all(SFX_FILES.map(async n=>{try{const b=await fetch(ASSET+'snd/'+n+'.mp3').then(r=>r.arrayBuffer());SFX[n]=await AC.decodeAudioData(b);}catch(e){}}));
+    if(SFX.wiatr){const s=AC.createBufferSource();s.buffer=SFX.wiatr;s.loop=true;const g=AC.createGain();g.gain.value=.5;s.connect(g).connect(musicGain);s.start();}
+    applyMute();
+  }catch(e){AC=null;}
+}
+const lastPlay={};
+function sfx(n,x,y,z,vol){
+  if(!AC||muted||!SFX[n])return;const t=AC.currentTime;if(lastPlay[n]&&t-lastPlay[n]<.06)return;lastPlay[n]=t;
+  const s=AC.createBufferSource();s.buffer=SFX[n];s.playbackRate.value=.92+rnd()*.16;
+  const g=AC.createGain();let v=vol===undefined?1:vol,pan=0;
+  if(x!==undefined&&player){const P=proj(x,y,z||0);pan=Math.max(-1,Math.min(1,P[0]/BW*2-1));const d=Math.hypot(x-player.x,y-player.y);v*=Math.max(.3,1-d/450);}
+  g.gain.value=v;
+  if(AC.createStereoPanner){const p=AC.createStereoPanner();p.pan.value=pan*.7;s.connect(g).connect(p).connect(sfxGain);}else s.connect(g).connect(sfxGain);
+  s.start();
+}
+function applyMute(){if(sfxGain)sfxGain.gain.value=muted?0:.85;if(musicGain)musicGain.gain.value=muted?0:.32;if(musicEl&&musicEl.volume!==1&&!musicGain)musicEl.volume=muted?0:.32;const b=document.getElementById('bMute');if(b){b.classList.toggle('on',muted);b.lastChild.textContent=muted?'Dźwięk wył.':'Dźwięk';}}
+const MATSND={2:'mur',3:'mur',4:'mur',5:'mur',9:'mur',6:'drewno',7:'szklo',8:'metal',10:'drewno',11:'ziemia',1:'ziemia'};
+
+// ================= glass: bullets and grenades break panes and fly through =================
+function glassBreak(oi,P,dir,r){
+  remClear();const n=eraseSphere(oi,P[0],P[1],P[2],r||2.6,true,false,M_GLASS);
+  if(!n)return 0;
+  const l=Math.hypot(dir[0],dir[1],dir[2])||1,ux=dir[0]/l,uy=dir[1]/l;
+  makeFragments(REM,(x,y,z,V)=>{const s=.25+rnd()*.5;V[0]=ux*s+(rnd()-.5)*.3;V[1]=uy*s+(rnd()-.5)*.3;V[2]=rnd()*.3;},{mean:4});
+  sfx('szklo',P[0],P[1],P[2],.8);
+  return n;
+}
+// solid test against every layer of every object (so floors inside a building count too)
+const GROUND_HIT={oi:0,m:1};
+function gHit(x,y,z){
+  if(z<=dHAt(x,y))return GROUND_HIT;
+  const sx=Math.round((x-y)*2+OX),sy=Math.round(x+y-2*z+OY),d=x+y+z;
+  for(let oi=1;oi<objs.length;oi++){const ob=objs[oi],u=sx-ob.x0,v=sy-ob.y0;if(u<0||v<0||u>=ob.w||v>=ob.h)continue;const k=v*ob.w+u;
+    for(let L=0;L<ob.layers.length;L++){const ly=ob.layers[L];if(!ly.col[k])continue;const dd=d-ly.dep[k];if(dd<.8&&dd>-3)return {oi,L,k,m:oi===DEB?debMt[sy*BW+sx]:(ly.mt?ly.mt[k]:2)};}}
+  return null;
+}
+
+// ================= camera: zoom and 90° rotation =================
+let zoom=1,camX=BW/2,camY=BH/2,ROT=0;
+function placeCanvas(){
+  const r=stage.getBoundingClientRect();if(!r.width)return;const s0=Math.min(r.width/BW,r.height/BH),s=s0*zoom,w=BW*s,h=BH*s;
+  let left=r.width/2-camX*s,top=r.height/2-camY*s;
+  if(w<=r.width)left=(r.width-w)/2;else left=Math.min(0,Math.max(r.width-w,left));
+  if(h<=r.height)top=(r.height-h)/2;else top=Math.min(0,Math.max(r.height-h,top));
+  cv.style.width=w+'px';cv.style.height=h+'px';cv.style.left=left+'px';cv.style.top=top+'px';
+}
+function setZoom(z){zoom=Math.max(1,Math.min(4,z));if(zoom===1){camX=BW/2;camY=BH/2;}placeCanvas();}
+function followCam(){if(zoom<=1.001||!player)return;const P=proj(player.x,player.y,player.z);camX+=(P[0]-camX)*.12;camY+=(P[1]-30-camY)*.12;}
+const RCX=W/2,RCY=D/2;
+const rp=(x,y)=>[RCX-(y-RCY),RCY+(x-RCX)];
+function rotXY(o,kx,ky){const r=rp(o[kx],o[ky]);o[kx]=r[0];o[ky]=r[1];}
+function rotV(o,kx,ky){const a=o[kx];o[kx]=-o[ky];o[ky]=a;}
+// rotate the whole world by 90°: world data turns, sprites of objects are mirrored (they only exist from one side)
+function rot1(){
+  for(const ch of chunks)shatter(ch);chunks=[];
+  // static objects
+  for(let oi=1;oi<DEB;oi++){
+    const o=objs[oi];if(!o.fp)continue;
+    const cx=(o.fp[0]+o.fp[2])/2,cy=(o.fp[1]+o.fp[3])/2,a=proj(cx,cy,0),[ncx,ncy]=rp(cx,cy),b=proj(ncx,ncy,0),dd=(ncx+ncy)-(cx+cy);
+    const w=o.w,h=o.h,nx0=Math.round(a[0]+b[0])-o.x0-(w-1),ny0=o.y0+Math.round(b[1]-a[1]);
+    o.layers=o.layers.map(ly=>{const col=new Uint32Array(w*h),dep=new Float32Array(w*h),zh=new Float32Array(w*h),mt=new Uint8Array(w*h);
+      for(let y=0;y<h;y++)for(let x=0;x<w;x++){const k=y*w+x,k2=y*w+(w-1-x);col[k2]=ly.col[k];dep[k2]=ly.dep[k]+dd;zh[k2]=ly.zh[k];mt[k2]=ly.mt?ly.mt[k]:2;}
+      return {col,dep,zh,mt};});
+    o.x0=nx0;o.y0=ny0;
+    const p1=rp(o.fp[0],o.fp[1]),p2=rp(o.fp[2],o.fp[3]);o.fp=[Math.min(p1[0],p2[0]),Math.min(p1[1],p2[1]),Math.max(p1[0],p2[0]),Math.max(p1[1],p2[1])];
+    const c=rp(o.cx,o.cy);o.cx=c[0];o.cy=c[1];
+  }
+  // ground: re-sample the current ground (keeps scorch marks and blood)
+  {const L=objs[0].layers[0],old=L.col.slice();
+    for(let sy=0;sy<BH;sy++)for(let sx=0;sx<BW;sx++){const u=((sx+.5-OX)/2+(sy+.5-OY))/2,v=((sy+.5-OY)-(sx+.5-OX)/2)/2;if(u<0||v<0||u>=W||v>=D)continue;
+      const x=RCX+(v-RCY),y=RCY-(u-RCX),ox=Math.floor((x-y)*2+OX),oy=Math.floor(x+y+OY);if(ox<0||oy<0||ox>=BW||oy>=BH)continue;L.col[sy*BW+sx]=old[oy*BW+ox];}}
+  // debris layer
+  {const L=objs[DEB].layers[0],oc=L.col.slice(),od=L.dep.slice(),oz=L.zh.slice(),om=debMt.slice();L.col.fill(0);L.dep.fill(-1e9);debMt.fill(0);
+    for(let p=0;p<PIX;p++){if(!oc[p])continue;toWorld(p%BW+.5,od[p],oz[p],TW);const r=rp(TW[0],TW[1]),X=Math.round((r[0]-r[1])*2+OX-.5),Y=Math.round(r[0]+r[1]-2*oz[p]+OY-.5);if(X<0||Y<0||X>=BW||Y>=BH)continue;const q=Y*BW+X,d=r[0]+r[1]+oz[p];if(L.col[q]&&L.dep[q]>=d)continue;L.col[q]=oc[p];L.dep[q]=d;L.zh[q]=oz[p];debMt[q]=om[p];}}
+  // height map of rubble and walkable grid (square grids, exact 90° turn)
+  {const o=dHt.slice();for(let cy=0;cy<DDH;cy++)for(let cx=0;cx<DW;cx++)dHt[cx*DW+(DW-1-cy)]=o[cy*DW+cx];}
+  {const o=blocked.slice();for(let y=0;y<D;y++)for(let x=0;x<W;x++)blocked[x*W+(W-1-y)]=o[y*W+x];}
+  // moving things
+  for(const ch of chars){rotXY(ch,'x','y');rotXY(ch,'tx','ty');ch.dir=(ch.dir+2)%8;}
+  for(let i=0;i<np;i++){const r=rp(px[i],py[i]);px[i]=r[0];py[i]=r[1];const a=pvx[i];pvx[i]=-pvy[i];pvy[i]=a;}
+  for(const f of frags){rotXY(f,'x','y');rotV(f,'vx','vy');}
+  for(const dp of detached){rotXY(dp,'x','y');rotV(dp,'vx','vy');}
+  for(const g of grenades){rotXY(g,'x','y');rotV(g,'vx','vy');}
+  for(const s of sandLeaks)rotXY(s,'x','y');
+  for(const e of pending)rotXY(e,'x','y');
+  for(const t of topples){for(let i=0;i<t.n;i++){const r=rp(t.wx[i],t.wy[i]);t.wx[i]=r[0];t.wy[i]=r[1];}rotXY(t,'px','py');rotV(t,'fx','fy');}
+  if(lastHitDir){lastHitDir=[-lastHitDir[1],lastHitDir[0],lastHitDir[2]||0];}
+  smoke=[];fire=[];tracers=[];flashes=[];
+  ROT=(ROT+1)%4;
+  computeShadows();compose(0,0,BW-1,BH-1);dx0=dy0=1e9;dx1=dy1=-1e9;shadowDirty=false;
+}
+function rotateView(dir){if(!ready)return;const n=dir>0?1:3;for(let i=0;i<n;i++)rot1();log(`Kamera: ${['północ','zachód','południe','wschód'][ROT]}.`);}
 
 
 // ================= characters runtime =================
@@ -560,6 +675,7 @@ function kill(ch,dir){
   if(!ch.alive)return;ch.alive=false;ch.dying=0;ch.pose=5;ch.moving=false;
   if(dir&&ch.kind==='human')ch.dir=dirTo(-dir[0],-dir[1]);
   if(ch.dir===3||ch.dir===7)ch.dir=(ch.dir+(rnd()<.5?1:7))%8;
+  sfx(ch.kind==='dog'?'pies_szczek':'upadek',ch.x,ch.y,ch.z,.8);
   if(ch===player){log('Nie żyjesz.','hit');document.getElementById('dead').hidden=false;}else log(`${ch.name} nie żyje.`,'hit');
 }
 const A3=[0,0,0],B3=[0,0,0];
@@ -572,14 +688,14 @@ function sever(ch,pi,dir,pow){
     detached.push(dp);emitters.push({k:'limb',p:dp,life:150,max:150,acc:0,t:0});
   }
   if(def.sever){charPoint(ch,def.name,B3);burstBlood(B3[0],B3[1],B3[2],dir,55,1.3);ch.wounds.push(def.name);emitters.push({k:'stump',ch,j:def.name,life:230,max:230,acc:0,t:rnd()*6});}
-  log(ch===player?`Tracisz ${def.acc}!`:`${ch.name} traci ${def.acc}!`,'hit');shake+=1.5;
+  log(ch===player?`Tracisz ${def.acc}!`:`${ch.name} traci ${def.acc}!`,'hit');shake+=1.5;if(ch.kind==='human')sfx('krzyk',ch.x,ch.y,ch.z,.9);
   if(def.kind==='head')kill(ch,dir);
   else if(def.kind==='leg'){ch.legsLost++;if(ch.kind!=='dog'||ch.legsLost>=2)kill(ch,dir);}
   if(def.name==='armR'&&ch.kind==='human'){ch.canShoot=false;if(ch===player)log('Bez prawej ręki nie strzelisz. Zostały granaty i ładunek.');}
 }
 function damagePart(ch,pi,hp,dir,dmg,sev){
   const def=ch.T.defs[pi];burstBlood(hp[0],hp[1],hp[2],dir,16+dmg*.5,1.1);burstBlood(hp[0],hp[1],hp[2],[-dir[0]*.5,-dir[1]*.5,.5],6,.6);
-  ch.hp[pi]-=dmg;
+  ch.hp[pi]-=dmg;if(ch.kind==='human'&&ch.alive&&rnd()<.5)sfx('krzyk',ch.x,ch.y,ch.z,.7);
   if(def.sever&&(ch.hp[pi]<=0||rnd()<sev))sever(ch,pi,dir,1.7);
   else if(def.kind==='torso'&&ch.hp[pi]<=0)kill(ch,dir);
   else if(ch.alive&&ch!==player)log(`Trafiasz: ${ch.name}, ${def.label}.`);
@@ -595,7 +711,9 @@ function cast(M,T,shooter){
     for(const ch of chars){if(ch===shooter&&ch.alive)continue;const h=charHit(ch,sx,sy);if(h&&d<=h.d+1.2&&d>=h.d-4.5)return {t:'char',ch,pi:h.pi,P:[x,y,z]};}
     for(const dp of detached){const h=detHit(dp,sx,sy);if(h&&d<=h.d+1.2&&d>=h.d-3)return {t:'det',dp,P:[x,y,z]};}
     for(let oi=1;oi<objs.length;oi++){const ob=objs[oi];const u=sx-ob.x0,v=sy-ob.y0;if(u<0||v<0||u>=ob.w||v>=ob.h)continue;const k=v*ob.w+u;
-      for(const ly of ob.layers){if(!ly.col[k])continue;const pd=ly.dep[k];if(d<=pd+1.2&&d>=pd-ob.thick){toWorld(sx,pd,ly.zh[k],TW);return {t:'static',oi,P:[TW[0],TW[1],TW[2]]};}}}
+      for(const ly of ob.layers){if(!ly.col[k])continue;const pd=ly.dep[k];if(d<=pd+1.2&&d>=pd-ob.thick){toWorld(sx,pd,ly.zh[k],TW);
+        if(ly.mt&&ly.mt[k]===M_GLASS){glassBreak(oi,[TW[0],TW[1],TW[2]],[dx,dy,dz],1.6);continue;}
+        return {t:'static',oi,P:[TW[0],TW[1],TW[2]]};}}}
   }
   return {t:'none',x:M[0]+dx*(L+160),y:M[1]+dy*(L+160),z:M[2]+dz*(L+160)};
 }
@@ -625,6 +743,7 @@ function playerFire(bx,by){
   cool=w.cd;player.dir=dirTo(T[0]-player.x,T[1]-player.y);
   if(w.id==='rifle'||w.id==='shotgun'){
     const M=muzzle(player),p=proj(...M);flashes.push({x:p[0],y:p[1],r:w.id==='rifle'?16:24,a:.9});
+    sfx(w.id==='rifle'?'karabin':'strzelba');
     if(w.id==='rifle')fireBullet(player,M,T,.002,45,2.2,.3);else for(let k=0;k<9;k++)fireBullet(player,M,T,.03,14,1.4,.07);
     shake+=w.id==='rifle'?.8:1.6;
   }else if(w.id==='grenade'){
@@ -637,18 +756,21 @@ function grenadeLaunch(T){
   const M=charPoint(player,[ai===player.T.pidx.armL?-3:3,2,20],[0,0,0]),t=48;
   return {M,v:[(T[0]-M[0])/t,(T[1]-M[1])/t,(T[2]-M[2])/t+.5*G*t]};
 }
-function gSolid(x,y,z){if(z<=dHAt(x,y))return true;const sx=Math.round((x-y)*2+OX),sy=Math.round(x+y-2*z+OY);if(sx<0||sy<0||sx>=BW||sy>=BH)return false;const p=sy*BW+sx,o=sObj[p];if(o>0&&o!==DEB){const dd=x+y+z-sDep[p];return dd<.8&&dd>-3;}return false;}
-function gStep(g,ts){
+function gSolid(x,y,z){return !!gHit(x,y,z);}
+function gStep(g,ts,real){
   g.fuse-=ts;g.vz-=G*ts;
-  let nx=g.x+g.vx*ts;if(gSolid(nx,g.y,g.z)){g.vx*=-.35;nx=g.x;}g.x=nx;
-  let ny=g.y+g.vy*ts;if(gSolid(g.x,ny,g.z)){g.vy*=-.35;ny=g.y;}g.y=ny;
-  let nz=g.z+g.vz*ts;if(gSolid(g.x,g.y,nz)){g.vz*=-.3;g.vx*=.7;g.vy*=.7;nz=g.z;}g.z=nz;
+  const free=(x,y,z)=>{const h=gHit(x,y,z);if(!h)return true;if(h.m===M_GLASS&&h.oi>0){if(real)glassBreak(h.oi,[x,y,z],[g.vx,g.vy,g.vz],2.6);g.vx*=.9;g.vy*=.9;return true;}return false;};
+  const bump=()=>{if(real&&Math.hypot(g.vx,g.vy,g.vz)>.3)sfx('granat_odbicie',g.x,g.y,g.z,.6);};
+  let nx=g.x+g.vx*ts;if(!free(nx,g.y,g.z)){bump();g.vx*=-.35;nx=g.x;}g.x=nx;
+  let ny=g.y+g.vy*ts;if(!free(g.x,ny,g.z)){bump();g.vy*=-.35;ny=g.y;}g.y=ny;
+  let nz=g.z+g.vz*ts;if(!free(g.x,g.y,nz)){if(g.vz<-.3)bump();g.vz*=-.3;g.vx*=.7;g.vy*=.7;nz=g.z;}g.z=nz;
 }
-function simGrenade(L){const g={x:L.M[0],y:L.M[1],z:L.M[2],vx:L.v[0],vy:L.v[1],vz:L.v[2],fuse:110},pts=[];for(let s=0;s<110;s++){gStep(g,1);if(g.x<0||g.y<0||g.x>=W||g.y>=D)break;if(s%2===0)pts.push(g.x,g.y,g.z);}return {pts,end:[g.x,g.y,g.z]};}
-function updGrenades(ts){for(let k=grenades.length-1;k>=0;k--){const g=grenades[k];gStep(g,ts);if(g.fuse<=0||g.x<0||g.y<0||g.x>=W||g.y>=D){if(g.fuse<=0)explode(g.x,g.y,g.z,20,2.4);grenades.splice(k,1);}}}
+function simGrenade(L){const g={x:L.M[0],y:L.M[1],z:L.M[2],vx:L.v[0],vy:L.v[1],vz:L.v[2],fuse:110},pts=[];for(let s=0;s<110;s++){gStep(g,1,false);if(g.x<0||g.y<0||g.x>=W||g.y>=D)break;if(s%2===0)pts.push(g.x,g.y,g.z);}return {pts,end:[g.x,g.y,g.z]};}
+function updGrenades(ts){for(let k=grenades.length-1;k>=0;k--){const g=grenades[k];gStep(g,ts,true);if(g.fuse<=0||g.x<0||g.y<0||g.x>=W||g.y>=D){if(g.fuse<=0)explode(g.x,g.y,g.z,20,2.4);grenades.splice(k,1);}}}
 
 // ================= explosions =================
 function explode(x,y,z,r,pow){
+  sfx(r>=30?'ladunek':'granat',x,y,z,1);
   const touched=[];
   const vel=(vx,vy,vz,V)=>{let dx=vx-x,dy=vy-y,dz=vz-z;const d=Math.hypot(dx,dy,dz)||1;dx/=d;dy/=d;dz/=d;const s=pow*(.35+rnd()*.8)*Math.max(.15,1-d/(r+2))+.2;V[0]=dx*s;V[1]=dy*s;V[2]=dz*s*.8+.35+rnd()*.5;};
   for(let oi=1;oi<objs.length;oi++){
@@ -725,14 +847,14 @@ function updChars(ts){
 function dogBite(dg){
   const cand=['legL','legR','armL','armR','torso'].map(n=>player.T.pidx[n]).filter(pi=>player.att[pi]);if(!cand.length)return;
   const pi=cand[(rnd()*cand.length)|0];partCenter(player,pi,A3);const dir=[player.x-dg.x,player.y-dg.y,.3],l=Math.hypot(...dir)||1;
-  damagePart(player,pi,A3,dir.map(a=>a/l),20,.12);log('Pies gryzie!','hit');
+  sfx('pies_gryz',dg.x,dg.y,0,1);damagePart(player,pi,A3,dir.map(a=>a/l),20,.12);log('Pies gryzie!','hit');
 }
 function enemyAI(ts){
   if(!enemyFire||!player.alive)return;
   for(const ch of chars){
     if(ch===player||!ch.alive||!ch.canShoot)continue;
     ch.cool-=ts;if(ch.cool>0)continue;ch.cool=110+rnd()*170;
-    const M=muzzle(ch),T=charPoint(player,[0,0,8+rnd()*13],[0,0,0]),p=proj(...M);flashes.push({x:p[0],y:p[1],r:14,a:.8});
+    const M=muzzle(ch),T=charPoint(player,[0,0,8+rnd()*13],[0,0,0]),p=proj(...M);flashes.push({x:p[0],y:p[1],r:14,a:.8});sfx('karabin',ch.x,ch.y,ch.z,.6);
     fireBullet(ch,M,T,ch.acc,ch.acc<.02?40:22,1.4,.15);
   }
 }
@@ -924,11 +1046,12 @@ function setW(i){cur=i;document.querySelectorAll('#weapons button').forEach(b=>b
 document.querySelectorAll('#weapons button').forEach(b=>b.addEventListener('click',()=>setW(+b.dataset.w)));
 const bSlow=document.getElementById('bSlow'),bFire=document.getElementById('bFire'),bSheet=document.getElementById('bSheet');
 function toggleSlow(){slow=!slow;bSlow.classList.toggle('on',slow);}
-function toggleFire(){enemyFire=!enemyFire;bFire.classList.toggle('on',enemyFire);log(enemyFire?'Wrogowie atakują, pies szarżuje.':'Wrogowie wstrzymują atak.');}
+function toggleFire(){enemyFire=!enemyFire;if(enemyFire){const d=chars.find(c=>c.kind==='dog'&&c.alive);if(d)sfx('pies_szczek',d.x,d.y,0,1);}bFire.classList.toggle('on',enemyFire);log(enemyFire?'Wrogowie atakują, pies szarżuje.':'Wrogowie wstrzymują atak.');}
 function toggleSheet(){if(!ready)return;buildSheet();sheet.hidden=!sheet.hidden;bSheet.classList.toggle('on',!sheet.hidden);}
 bSlow.addEventListener('click',toggleSlow);bFire.addEventListener('click',toggleFire);bSheet.addEventListener('click',toggleSheet);
 document.getElementById('bSheetClose').addEventListener('click',toggleSheet);
 document.getElementById('bReset').addEventListener('click',()=>reset());
+const stage=document.getElementById('stage');
 addEventListener('keydown',e=>{
   if(e.target.closest&&e.target.closest('button')&&(e.key===' '||e.key==='Enter'))return;
   const k=e.key.toLowerCase();
@@ -938,23 +1061,35 @@ addEventListener('keydown',e=>{
   else if(k==='r')reset();
   else if(k==='t')toggleFire();
   else if(k==='v')toggleSheet();
+  else if(k==='q')rotateView(-1);
+  else if(k==='e')rotateView(1);
+  else if(e.key==='+'||e.key==='=')setZoom(zoom*1.25);
+  else if(e.key==='-'||e.key==='_')setZoom(zoom/1.25);
+  else if(k==='m'){muted=!muted;applyMute();}
 });
+addEventListener('keydown',()=>initAudio(),{once:true});
+addEventListener('pointerdown',()=>initAudio(),{once:true});
+stage.addEventListener('wheel',e=>{e.preventDefault();setZoom(zoom*(e.deltaY<0?1.15:1/1.15));},{passive:false});
+document.getElementById('bRotL').addEventListener('click',()=>rotateView(-1));
+document.getElementById('bRotR').addEventListener('click',()=>rotateView(1));
+document.getElementById('bZoomIn').addEventListener('click',()=>setZoom(zoom*1.25));
+document.getElementById('bZoomOut').addEventListener('click',()=>setZoom(zoom/1.25));
+document.getElementById('bMute').addEventListener('click',()=>{muted=!muted;applyMute();initAudio();});
 addEventListener('keyup',e=>{const k=e.key.toLowerCase();if(k in keys)keys[k]=false;});
 addEventListener('blur',()=>{for(const k in keys)keys[k]=false;});
 function toBuf(e){const r=cv.getBoundingClientRect();return [Math.floor((e.clientX-r.left)/r.width*BW),Math.floor((e.clientY-r.top)/r.height*BH)];}
-const stage=document.getElementById('stage');
 cv.addEventListener('pointermove',e=>{[mx,my]=toBuf(e);if(mx<0||my<0||mx>=BW||my>=BH)mx=my=-1;const sr=stage.getBoundingClientRect();tip.style.left=(e.clientX-sr.left+18)+'px';tip.style.top=(e.clientY-sr.top+14)+'px';});
 cv.addEventListener('pointerleave',()=>{mx=my=-1;tip.hidden=true;});
 cv.addEventListener('pointerdown',e=>{if(!ready)return;if(e.pointerType==='mouse'&&e.button!==0)return;const [bx,by]=toBuf(e);mx=bx;my=by;playerFire(bx,by);});
-function fit(){const r=stage.getBoundingClientRect();const s=Math.min(r.width/BW,r.height/BH);cv.style.width=(BW*s)+'px';cv.style.height=(BH*s)+'px';}
+function fit(){placeCanvas();}
 addEventListener('resize',fit);new ResizeObserver(fit).observe(stage);
 
 let ready=false;
 function reset(){
   np=0;chunks=[];frags=[];topples=[];sandLeaks=[];debMt.fill(0);detached=[];emitters=[];grenades=[];pending=[];tracers=[];flashes=[];smoke=[];fire=[];dHt.fill(0);
-  resetWorld();spawnChars();computeShadows();compose(0,0,BW-1,BH-1);
+  ROT=0;resetWorld();spawnChars();computeShadows();compose(0,0,BW-1,BH-1);
   document.getElementById('dead').hidden=true;
-  logEl.innerHTML='';log('Ulica Kolejowa. Złomiarze za barierami, jeden na dachu pawilonu, wilczur przy wraku.');log('WASD chodzisz. Karabin odstrzeli kończynę, ładunek pod kamienicą ją zawali.');
+  logEl.innerHTML='';log('Ulica Kolejowa. Złomiarze za barierami, jeden na dachu pawilonu, wilczur przy wraku.');log('WASD ruch, klik strzał, 1–4 broń. Q/E obrót kamery, kółko myszy zoom, M dźwięk.');
 }
 
 // ================= loop =================
@@ -967,6 +1102,7 @@ function frame(now){
   fCol.set(sCol);fDep.set(sDep);fZ.set(sZ);fPick.set(sObj);shMark.fill(0);
   drawWorld();
   ctx.putImageData(img,0,0);drawFx();
+  if(zoom>1.001){followCam();placeCanvas();}
   if(shake>.05){cv.style.transform=`translate(${(rnd()-.5)*shake}px,${(rnd()-.5)*shake}px)`;shake*=.86;}else if(shake){shake=0;cv.style.transform='';}
   if(mx>=0){const p=fPick[my*BW+mx];
     if(p<=-2){const r=refs[-p-2];if(r&&r.ch){tip.textContent=`${r.ch.name} · ${r.ch.T.defs[r.pi].label} · PŻ ${Math.max(0,Math.round(r.ch.hp[r.pi]))}`;}else if(r){tip.textContent=`${r.dp.label} (${r.dp.owner})`;}tip.hidden=false;}

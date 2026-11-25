@@ -13,9 +13,10 @@ Zagraj: https://thenatoorat1.github.io/Ostatni-Peron/
 
 ## Sterowanie
 
-WASD ruch, mysz celowanie i strzał, 1–4 broń, Spacja zwolnione tempo, T atak wrogów, V podgląd sprite'ów, R od nowa.
+WASD ruch, mysz celowanie i strzał, 1–4 broń, Q/E obrót kamery, kółko myszy lub +/− zoom, M dźwięk, Spacja zwolnione tempo, T atak wrogów, V podgląd sprite'ów, R od nowa.
 
 ## Licencje grafiki
 
 - Postacie i pies: modele Quaternius (Ultimate Modular Men, Ultimate Animated Animals), CC0.
 - Budynki, rekwizyty, drzewa i tekstury: wygenerowane w Magnific.
+- Efekty dźwiękowe i muzyka (`assets/snd/`): wygenerowane w Magnific.
