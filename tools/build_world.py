@@ -203,7 +203,7 @@ place_cyl_img(veg, rb, 70 / w_of(rb), 'Gruz', 2, 140, 114, 7)
 
 pine = key_magenta(MAG + 'sosna.png'); ys, xs = np.nonzero(pine[1] > .5); ph = ys.max() - ys.min()
 birch = key_magenta(MAG + 'brzoza.png'); ys2, xs2 = np.nonzero(birch[1] > .5); bh = ys2.max() - ys2.min()
-for (cx, cy, hh) in [(292, 40, 300), (286, 120, 270), (20, 130, 280), (14, 40, 300), (180, 40, 260), (60, 20, 250)]:
+for (cx, cy, hh) in [(292, 40, 300), (286, 120, 270), (20, 130, 280), (14, 40, 300), (173, 42, 260), (62, 6, 250)]:
     place_cyl_img(pine, (ys.min(), ys.max() + 1, xs.min(), xs.max() + 1), hh / ph, 'Sosna', 5, cx, cy, 2.2)
 for (cx, cy, hh) in [(40, 250, 200), (282, 264, 180)]:
     place_cyl_img(birch, (ys2.min(), ys2.max() + 1, xs2.min(), xs2.max() + 1), hh / bh, 'Brzoza', 5, cx, cy, 1.6)
@@ -377,6 +377,61 @@ add_building('Pawilon handlowy', [0], PT, (214, 233, 30), roof_walk=True,
                     dict(rect=(192, 41.5, 250, 45), z0=0, z1=18, style='shelf'),
                     dict(rect=(246, 76, 254, 84), z0=0, z1=10, style='metal')])     # fridge
 
+# ---------------- shop sign "STONKA": hanging lightbox perpendicular to the pavilion front ----------------
+from PIL import ImageFont, ImageDraw as _ID
+def sign_texture(lit):
+    TW, TH = 480, 240
+    im = Image.new('RGB', (TW, TH), (8, 40, 22)); d = _ID.Draw(im)
+    bg = (22, 96, 48) if lit else (14, 58, 30)
+    d.rounded_rectangle((6, 6, TW - 7, TH - 7), 46, fill=bg, outline=(40, 140, 70) if lit else (24, 80, 42), width=10)
+    f = ImageFont.truetype('/usr/share/fonts/truetype/google-fonts/Poppins-Bold.ttf', 92)
+    txt = 'STONKA'; tw = d.textlength(txt, font=f)
+    fg = (170, 255, 120) if lit else (70, 120, 60)
+    d.text((112 + (TW - 132 - tw) / 2, 52), txt, font=f, fill=fg)
+    # small potato beetle: yellow shell with black stripes
+    bx, by = 58, 112
+    d.ellipse((bx - 34, by - 44, bx + 34, by + 44), fill=(230, 190, 60) if lit else (120, 100, 40))
+    for i in (-18, 0, 18): d.line((bx + i, by - 40, bx + i, by + 40), fill=(20, 20, 14), width=7)
+    d.ellipse((bx - 18, by - 64, bx + 18, by - 38), fill=(200, 110, 40) if lit else (100, 60, 30))
+    d.line((40, 200, TW - 40, 200), fill=fg, width=8)
+    return np.asarray(im).astype(float)
+
+def make_sign():
+    pv = next(ob for ob in objects if ob['name'] == 'Pawilon handlowy')
+    Y1 = pv['shape'][2]
+    PX, PZ0, PZ1, L = 206.0, 19.0, 31.0, 24.0
+    boxes = [(PX - 0.6, Y1, 29.4, PX + 0.6, Y1 + 2.4, 30.6, 'metal'),
+             (PX - 1.0, Y1 + 1.6, PZ0, PX + 1.0, Y1 + 1.6 + L, PZ1, 'panel')]
+    xs, ys = [], []
+    for b in boxes:
+        for x in (b[0], b[3]):
+            for y in (b[1], b[4]):
+                for z in (b[2], b[5]): xs.append((x - y) * 2 + OX); ys.append(x + y - 2 * z + OY)
+    o = dict(name='Szyld STONKA', mat=7, ex=False, x0=int(np.floor(min(xs))) - 1, y0=int(np.floor(min(ys))) - 1)
+    o['w'] = int(np.ceil(max(xs))) - o['x0'] + 2; o['h'] = int(np.ceil(max(ys))) - o['y0'] + 2
+    x0r, y0r = obj_grid(o)
+    t, face, bi = box_cast(x0r, y0r, [b[:6] + ('wood',) for b in boxes])
+    valid = bi >= 0
+    X = x0r + t; Y = y0r + t; Z = t
+    layers = []
+    for lit in (True, False):
+        tex = sign_texture(lit); th, tw = tex.shape[:2]
+        col = np.zeros(t.shape + (3,))
+        pan = valid & (bi == 1)
+        u = np.clip(((Y1 + 1.6 + L) - Y) / L, 0, .999); v = np.clip((PZ1 - Z) / (PZ1 - PZ0), 0, .999)
+        f0 = pan & (face == 0)
+        col[f0] = tex[(v[f0] * th).astype(int), (u[f0] * tw).astype(int)]
+        col[pan & (face == 1)] = (150, 255, 110) if lit else (40, 90, 46)
+        col[pan & (face == 2)] = (16, 70, 36)
+        met = valid & (bi == 0)
+        col[met] = np.array((96, 98, 100)) * np.where(face[met] == 2, 1.0, .75)[:, None]
+        mt = np.where(pan, 7, 8).astype(np.uint8)
+        layers.append((col, valid.copy(), x0r + y0r + 3 * np.maximum(t, 0), np.maximum(t, 0), np.where(valid, mt, 0).astype(np.uint8)))
+    o.update(layers=layers, thick=2, shape=('box', PX + 1, Y1 + 1.6 + L, 2, L + 1.6, PZ1), blocks=False,
+             lflags=[{'sign': 'lit'}, {'sign': 'unlit', 'hide': True, 'ghost': True}], parent='Pawilon handlowy', light=[PX + 1.2, Y1 + 1.6 + L / 2, (PZ0 + PZ1) / 2])
+    objects.append(o)
+make_sign()
+
 # ---------------- ground ----------------
 def tile(fname, px):
     im = Image.open(MAG + fname).convert('RGB').resize((px, px), Image.LANCZOS)
@@ -455,6 +510,8 @@ def classify(name, rgb, zh, mask):
     elif name == 'Wrak samochodu':
         mt[:] = 8; mt[(bluegl | (darkgl & (v > .1))) & (zh > np.percentile(zh[mask], 45))] = 7
     elif name in ('Beczka', 'Beczka z paliwem', 'Latarnia'): mt[:] = 8
+    if name == 'Latarnia':
+        gl = np.zeros_like(mask); gl[36:48, 5:20] = True; mt[gl & mask & (v > .25)] = 7
     elif name == 'Worki z piaskiem': mt[:] = 11
     elif name == 'Bariera betonowa': mt[:] = 2
     elif name == 'Skrzynie': mt[:] = 6
@@ -485,7 +542,7 @@ for o in objects:
     df = (sxm - OX) / 2; ss = dd - zz
     meta.append(dict(name=o['name'], mat=o['mat'], ex=o['ex'], x0=o['x0'], y0=o['y0'], w=o['w'], h=o['h'], layers=L, thick=o['thick'],
                      fp=[round(v, 1) for v in fp], blocks=o['blocks'], topple=o['name'] in ('Sosna', 'Brzoza', 'Latarnia'), c=[round((ss + df) / 2, 1), round((ss - df) / 2, 1), round(zz, 1)]))
-    for k in ('lflags', 'bld', 'parent'):
+    for k in ('lflags', 'bld', 'parent', 'light'):
         if o.get(k) is not None: meta[-1][k] = o[k]
 AW = 2048; x = y = rowh = 0; pos = {}
 for i in sorted(range(len(tiles)), key=lambda i: -tiles[i][0].shape[0]):
