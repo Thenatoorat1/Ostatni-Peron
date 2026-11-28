@@ -48,6 +48,11 @@ def _bbc():
             w = ev.matrix_world @ v.co; lo = Vector(map(min, lo, w)); hi = Vector(map(max, hi, w))
         ev.to_mesh_clear()
     return (lo + hi) / 2
+# the Adventurer model faces +Y while the poses (and the old sprites) expect -Y: turn it around first
+for _o in bpy.data.objects:
+    if _o.parent is None and _o is not piv and _o.type in ('MESH', 'ARMATURE', 'EMPTY'): _o.parent = piv
+for _o in piv.children: _o.matrix_world = Matrix.Rotation(math.pi, 4, 'Z') @ _o.matrix_world
+vl.update()
 _hc = _bbc()
 for _o in bpy.data.objects:
     if _o.parent is None and _o is not piv and _o.type in ('MESH', 'ARMATURE', 'EMPTY'): _o.parent = piv
@@ -190,18 +195,21 @@ def weapon(kind, side):
         for m in o.data.materials:
             b = m.node_tree.nodes.get('Principled BSDF'); b.inputs['Base Color'].default_value = (0.3, 0.17, 0.05, 1); b.inputs['Roughness'].default_value = 0.2
     WOBJ[key] = o; return o
+MZ = {}
 def attach(o, side, kind):
     """place weapon o in the hand of the current pose; long axis +Y of the weapon along the chosen direction"""
     vl.update(); mw = arm.matrix_world; hb = arm.pose.bones['Hand.' + side]
     h = mw @ hb.head; t = mw @ hb.tail; hd = (t - h).normalized()
     if kind in ('rifle', 'shotgun'):
+        MZ[kind] = max(-v.co.y for v in o.data.vertices)
         fwd = Vector((0, -1, 0)); pos = h + Vector((0.0, 0.02, -0.02))
-        o.matrix_world = Matrix.Translation(pos) @ Matrix.Rotation(math.pi, 4, 'Z')    # weapon +Y -> world -Y
+        o.matrix_world = Matrix.Translation(pos)    # the gun's barrel already runs along -Y (forward)
     else:
         d = (hd * 0.35 + Vector((0, -0.25, 1.0))).normalized() if kind in ('knife', 'blade', 'blunt') else hd
         q = Vector((0, 1, 0)).rotation_difference(d)
         pos = h + hd * 0.07
         o.matrix_world = Matrix.Translation(pos) @ q.to_matrix().to_4x4()
+    if os.environ.get('DBG'): print('ATT', kind, side, 'hand', h, 'chest', mw @ arm.pose.bones['Chest'].head, 'wdir', o.matrix_world.to_3x3() @ Vector((0,1,0)), 'head', mw @ arm.pose.bones['Head'].tail)
     W = o.matrix_world.copy(); o.parent = arm; o.parent_type = 'BONE'; o.parent_bone = 'Hand.' + side; vl.update(); o.matrix_world = W; vl.update()
 
 # ---------- posing ----------
@@ -366,8 +374,8 @@ def joints(st):
     for k, bn in {'head': 'Neck', 'armL': 'UpperArm.L', 'armR': 'UpperArm.R', 'legL': 'UpperLeg.L', 'legR': 'UpperLeg.R', 'torsoC': 'Chest', 'handL': 'Hand.L', 'handR': 'Hand.R'}.items():
         J[k] = E(mw @ arm.pose.bones[bn].head)
     if st == 'rifle':
-        J['muzzle'] = E(weapon('rifle', 'R').matrix_world @ Vector((0, 0.78, 0.03)))
-        J['muzzleS'] = E(weapon('shotgun', 'R').matrix_world @ Vector((0, 0.78, 0.03)))
+        J['muzzle'] = E(weapon('rifle', 'R').matrix_world @ Vector((0, -MZ['rifle'], 0.03)))
+        J['muzzleS'] = E(weapon('shotgun', 'R').matrix_world @ Vector((0, -MZ['shotgun'], 0.03)))
     return J
 
 meta = {'parts': ['legL', 'legR', 'torso', 'armL', 'armR', 'head'], 'poseNames': POSES, 'sets': {}}
