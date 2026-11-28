@@ -1233,7 +1233,7 @@ function explode(x,y,z,r,pow){
 // ================= updates =================
 // ================= fire: wood chars and crumbles, leaves and grass burn away, flames climb =================
 const FLAM=new Uint8Array(16);FLAM[M_WOOD]=1;FLAM[M_LEAF]=1;
-const BMAX=7000,bOi=new Int16Array(BMAX),bL=new Uint8Array(BMAX),bK=new Int32Array(BMAX),bT=new Float32Array(BMAX),bM=new Uint8Array(BMAX);let nb=0;
+const BMAX=3200,bOi=new Int16Array(BMAX),bL=new Uint8Array(BMAX),bK=new Int32Array(BMAX),bT=new Float32Array(BMAX),bM=new Uint8Array(BMAX);let nb=0;
 const GN=150,GC=GN*GN,gFuel=new Float32Array(GC),gFire=new Uint8Array(GC),gLiq=new Float32Array(GC),heatT=new Int32Array(GC),heatZ=new Float32Array(GC);
 let gBurn=[],pools=[],fireAcc=0,fireTick=1,fireAmt=0;const burnDirty=new Set(),FT=[0,0,0];
 const FLAME=[0xff5ad2ff,0xff2a8cff,0xff2a8cff,0xff143cdc,0xff9ae8ff,0xff0a1e8c];
@@ -1241,14 +1241,14 @@ function layerFS(ly){return ly.fs||(ly.fs=new Uint8Array(ly.col.length));}
 function igniteK(oi,L,k){
   if(oi<=0||oi===DEB||nb>=BMAX)return false;const ly=objs[oi].layers[L];if(!ly||!ly.col[k]||!ly.mt)return false;
   const m=ly.mt[k];if(!FLAM[m])return false;const fs=layerFS(ly);if(fs[k])return false;fs[k]=1;
-  const i=nb++;bOi[i]=oi;bL[i]=L;bK[i]=k;bM[i]=m;bT[i]=m===M_LEAF?40+rnd()*50:260+rnd()*260;return true;
+  const i=nb++;bOi[i]=oi;bL[i]=L;bK[i]=k;bM[i]=m;bT[i]=m===M_LEAF?110+rnd()*130:520+rnd()*520;return true;
 }
 function igniteAt(x,y,z){if(x<0||y<0||x>=W||y>=D)return false;const h=gHit(x,y,z);return !!(h&&h.oi>0&&h.oi!==DEB&&igniteK(h.oi,h.L,h.k));}
 function igniteSphere(x,y,z,r,n){let c=0;for(let j=0;j<n;j++){const a=rnd()*6.283,b=rnd()*2-1,s=Math.cbrt(rnd())*r,q=Math.sqrt(1-b*b);if(igniteAt(x+Math.cos(a)*q*s,y+Math.sin(a)*q*s,Math.max(.3,z+b*s)))c++;}return c;}
 const gCell=(x,y)=>{const cx=Math.floor(x/2),cy=Math.floor(y/2);return cx<0||cy<0||cx>=GN||cy>=GN?-1:cy*GN+cx;};
 function gIgnite(c,liq){
   if(c<0)return;if(liq&&liq>gLiq[c])gLiq[c]=liq;
-  if(gFire[c]||(gFuel[c]<=0&&gLiq[c]<=0)||gBurn.length>5000)return;gFire[c]=1;gBurn.push(c);
+  if(gFire[c]||(gFuel[c]<=0&&gLiq[c]<=0)||gBurn.length>1400)return;gFire[c]=1;gBurn.push(c);
 }
 function groundFire(x,y,r,liq){for(let cy=Math.floor((y-r)/2);cy<=(y+r)/2;cy++)for(let cx=Math.floor((x-r)/2);cx<=(x+r)/2;cx++){if(cx<0||cy<0||cx>=GN||cy>=GN)continue;const d=Math.hypot(cx*2+1-x,cy*2+1-y);if(d>r)continue;gIgnite(cy*GN+cx,liq?liq*(.6+rnd()*.6)*(1-d/r*.5):0);}}
 // dry grass and weeds on the ground can burn; asphalt and bare concrete cannot
@@ -1265,17 +1265,19 @@ function updFire(ts){
   for(let j=pools.length-1;j>=0;j--){const p=pools[j];p.life-=ts;if(p.life<=0){pools.splice(j,1);continue;}const c=gCell(p.x,p.y);if(c>=0){heatT[c]=fireTick;heatZ[c]=p.z;}if(rnd()<.05*ts)igniteAt(p.x+(rnd()-.5)*p.r*2,p.y+(rnd()-.5)*p.r*2,p.z+(rnd()-.3)*4);}
   fireAcc+=ts;if(fireAcc<3)return;const dt=fireAcc;fireAcc=0;fireTick++;
   let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;
+  // the bigger the blaze, the slower it grows: it burns out instead of eating the map
+  const damp=Math.max(.12,1-nb/1500),gdamp=Math.max(.1,1-gBurn.length/500);
   for(let i=nb-1;i>=0;i--){
     const oi=bOi[i],ob=objs[oi],ly=ob&&ob.layers[bL[i]],k=bK[i],m=bM[i];
     if(!ly||!ly.col[k]){removeB(i);continue;}
     const u=k%ob.w,v=(k/ob.w)|0,sx=ob.x0+u,sy=ob.y0+v;toWorld(sx,ly.dep[k],ly.zh[k],FT);
     const c=gCell(FT[0],FT[1]);if(c>=0){heatT[c]=fireTick;heatZ[c]=FT[2];}
-    const p=(m===M_LEAF?.45:.14)*dt/3;
+    const p=(m===M_LEAF?.2:.09)*dt/3*Math.max(.4,damp);
     if(rnd()<p){const r=rnd();let du,dv;
       if(r<.6){du=((rnd()*3)|0)-1;dv=-1-((rnd()*2)|0);}else if(r<.88){du=rnd()<.5?-1-((rnd()*2)|0):1+((rnd()*2)|0);dv=0;}else{du=((rnd()*3)|0)-1;dv=1;}
       const uu=u+du,vv=v+dv;if(uu>=0&&vv>=0&&uu<ob.w&&vv<ob.h)igniteK(oi,bL[i],vv*ob.w+uu);}
-    if(rnd()<p*(m===M_LEAF?.25:.6)*(1-Math.min(.8,wx.cur.rain*.7))){const W2=windV();igniteAt(FT[0]+(rnd()-.5)*6+W2[0]*6,FT[1]+(rnd()-.5)*6+W2[1]*6,FT[2]+rnd()*7-1.2);}
-    if(FT[2]<4&&rnd()<p*.3)gIgnite(c,0);
+    if(rnd()<p*(m===M_LEAF?.15:.3)*damp*(1-Math.min(.8,wx.cur.rain*.7))){const W2=windV();igniteAt(FT[0]+(rnd()-.5)*6+W2[0]*6,FT[1]+(rnd()-.5)*6+W2[1]*6,FT[2]+rnd()*7-1.2);}
+    if(FT[2]<4&&rnd()<p*.2*gdamp)gIgnite(c,0);
     bT[i]-=dt;
     if(bT[i]<=0){
       ly.fs[k]=2;
@@ -1290,8 +1292,8 @@ function updFire(ts){
     const x=(c%GN)*2+1,y=((c/GN)|0)*2+1;
     if(gLiq[c]<=0&&gFuel[c]<=0){gFire[c]=0;gLiq[c]=0;gFuel[c]=0;gBurn[j]=gBurn[gBurn.length-1];gBurn.pop();scorchGround(x,y,1.7);continue;}
     heatT[c]=fireTick;heatZ[c]=0;
-    if(rnd()<.035*dt/3){const cx=c%GN,cy=(c/GN)|0,d=(rnd()*4)|0,X=cx+[1,-1,0,0][d],Y=cy+[0,0,1,-1][d];if(X>=0&&Y>=0&&X<GN&&Y<GN)gIgnite(Y*GN+X,0);}
-    if(rnd()<.05*dt/3)igniteAt(x+(rnd()-.5)*3,y+(rnd()-.5)*3,.4+rnd()*3);
+    if(rnd()<.022*gdamp*dt/3){const cx=c%GN,cy=(c/GN)|0,d=(rnd()*4)|0,X=cx+[1,-1,0,0][d],Y=cy+[0,0,1,-1][d];if(X>=0&&Y>=0&&X<GN&&Y<GN)gIgnite(Y*GN+X,0);}
+    if(rnd()<.03*gdamp*dt/3)igniteAt(x+(rnd()-.5)*3,y+(rnd()-.5)*3,.4+rnd()*3);
   }
   if(fireTick%8===0&&burnDirty.size){for(const oi of burnDirty)checkSupport(oi);burnDirty.clear();shadowDirty=true;}
   let bc=0;for(const ch of chars)if(ch.burn>0)bc++;
@@ -1421,6 +1423,7 @@ function setPose(ch){
   if(ch.kind==='spider'){
     if(!ch.alive){ch.pose=seq(['d1','d2','d3'],ch.dying/6);return;}
     if(ch.leap){ch.pose=P[ch.leap.t/ch.leap.dur<.15?'jump1':'jump2'];return;}
+    if(ch.cling==='wall'&&ch.wn&&P.wu1!==undefined){ch.dir=dirTo(-ch.wn[0],-ch.wn[1]);ch.pose=P[(ch.up?'wu':'wd')+(ch.moving?1+(Math.floor(ch.anim/2.2)%4):1)];return;}
     if(ch.biteT>0){ch.pose=P[ch.biteT>8?'bite1':'bite2'];return;}
     if(ch.spitT>0){ch.pose=P.spit;return;}
     if(ch.moving){ch.pose=P['walk'+(1+(Math.floor(ch.anim/2.2)%4))];return;}
@@ -1877,7 +1880,7 @@ function drawDetached(dp){
   }
 }
 function ring(ch){
-  if(!ch.alive)return;const r=ch.kind==='dog'?9:ch.kind==='spider'?8:5.5,col=RING[ch.team],gz=ch.z;
+  if(!ch.alive||ch.cling==='wall')return;const r=ch.kind==='dog'?9:ch.kind==='spider'?8:5.5,col=RING[ch.team],gz=ch.z;
   for(let k=0;k<120;k++){const a=k/120*6.2832,wx=ch.x+Math.cos(a)*r,wy=ch.y+Math.sin(a)*r;const sx=Math.round((wx-wy)*2+OX),sy=Math.round(wx+wy-2*gz+OY);if(sx<0||sy<0||sx>=BW-2||sy>=BH)continue;const lim=wx+wy+gz+1;
     for(let dx=0;dx<2;dx++){const q=sy*BW+sx+dx;if(fDep[q]<=lim)fCol[q]=blendP(fCol[q],col,.8);}}
 }
@@ -2425,8 +2428,8 @@ function applyLightmap(){
     if(l.k==='torch'||l.k==='candle'){const G=proj(player.x,player.y,0),S=proj(H[0],H[1],H[2]+3);radial(G[0],G[1],l.rad*2*flick,l.col,.85*I,.5);radial(S[0],S[1],l.rad*.45,l.col,.7*I);}
     else{const st=l.k==='strap',d=st?bodyDir(player):lightDir(),src=l.k==='head'?[player.x,player.y,player.z+EYE[player.stance]]:st?charPoint(player,'torsoC',[0,0,0]):H;if(st)src[2]+=2;cone(src[0],src[1],src[2],d[0],d[1],l.len,l.ang,l.col,.95*I*(l.str===undefined?1:l.str));}}
   for(const ch of chars){if(ch===player||!enemyLit(ch)||charHidden(ch))continue;const a=ch.dir*Math.PI/4;cone(ch.x,ch.y,ch.z+14,-Math.sin(a),Math.cos(a),170,.32,[220,232,255],.85*I);}
-  {const sc=1/Math.max(1,Math.sqrt(FCELLS.length/5)),fl=.88+rnd()*.24;for(const [x,y,n] of FCELLS){const k=Math.min(1,n/16)*sc;radial(x,y+10,(55+Math.sqrt(n)*9)*fl,[255,125,45],.6*k*I,.62);radial(x,y,(22+Math.sqrt(n)*4)*fl,[255,170,80],.5*k*I);}}
-  for(let i=0;i<fire.length;i+=5){const s=fire[i];radial(s.x,s.y+8,s.r*6,[255,140,60],Math.max(0,s.a)*.55*I,.6);}
+  {const sc=1/Math.max(1,Math.sqrt(FCELLS.length/5)),fl=.88+rnd()*.24;for(const [x,y,n] of FCELLS){const k=Math.min(1,n/16)*sc;radial(x,y+10,(50+Math.sqrt(n)*8)*fl,[255,125,45],.36*k*I,.62);radial(x,y,(20+Math.sqrt(n)*3.5)*fl,[255,170,80],.28*k*I);}}
+  for(let i=0;i<fire.length;i+=7){const s=fire[i];radial(s.x,s.y+8,s.r*5,[255,140,60],Math.max(0,s.a)*.32*I,.6);}
   for(const f of flashes)radial(f.x,f.y,f.r*5,[255,210,150],f.a*.9*I);
   drawRoofHole(true);
   ctx.save();ctx.globalCompositeOperation='multiply';ctx.drawImage(lmc,0,0);ctx.restore();
@@ -2445,7 +2448,7 @@ function fireCells(){FCELLS.length=0;FBIN.clear();const C=26;
   for(let j=0;j<gBurn.length;j+=2){const c=gBurn[j],P=proj((c%GN)*2+1,((c/GN)|0)*2+1,0);add(P[0],P[1]);add(P[0],P[1]);}
   for(const e of FBIN.values())FCELLS.push([e[0]/e[2],e[1]/e[2],e[2]]);}
 function drawFireGlow(){if(!FCELLS.length)return;const dk=darkness();ctx.save();ctx.globalCompositeOperation='lighter';
-  const sc=1/Math.max(1,Math.sqrt(FCELLS.length/5));for(const [x,y,n] of FCELLS){const k=Math.min(1,n/18)*(.04+dk*.13)*sc,r=16+Math.sqrt(n)*5,g=ctx.createRadialGradient(x,y,0,x,y,r);g.addColorStop(0,`rgba(255,150,60,${k})`);g.addColorStop(1,'rgba(255,120,40,0)');ctx.fillStyle=g;ctx.fillRect(x-r,y-r,r*2,r*2);}
+  const sc=1/Math.max(1,Math.sqrt(FCELLS.length/5));for(const [x,y,n] of FCELLS){const k=Math.min(1,n/18)*(.025+dk*.07)*sc,r=16+Math.sqrt(n)*5,g=ctx.createRadialGradient(x,y,0,x,y,r);g.addColorStop(0,`rgba(255,150,60,${k})`);g.addColorStop(1,'rgba(255,120,40,0)');ctx.fillStyle=g;ctx.fillRect(x-r,y-r,r*2,r*2);}
   ctx.restore();}
 // ---- laser dot ----
 function laserOn(){const w=WEAP[cur];return w.gun&&player.alive&&modsOf(w.id).rail==='laser'&&player.batt>0;}
@@ -2585,7 +2588,7 @@ function nightSpider(){if(chars.filter(c=>c.kind==='spider'&&c.alive).length>=2)
     chars.push(mkSpider(x,y,0,null));log('Gdzieś w ruinach coś chrobocze po murach…');return;}}
 function snapWall(ch){const b=ch.wb;if(!b){ch.cling=null;return;}const f=b.fp;let nx=Math.max(f[0],Math.min(f[2],ch.x)),ny=Math.max(f[1],Math.min(f[3],ch.y));
   if(nx===ch.x&&ny===ch.y){const dl=[ch.x-f[0],f[2]-ch.x,ch.y-f[1],f[3]-ch.y],m=Math.min(...dl),i=dl.indexOf(m);if(i===0)nx=f[0];else if(i===1)nx=f[2];else if(i===2)ny=f[1];else ny=f[3];}
-  const ox=nx===f[0]?-1:nx===f[2]?1:0,oy=ox?0:(ny===f[1]?-1:ny===f[3]?1:0);ch.x=nx+ox*.7;ch.y=ny+oy*.7;}
+  const ox=nx===f[0]?-1:nx===f[2]?1:0,oy=ox?0:(ny===f[1]?-1:ny===f[3]?1:0);ch.x=nx+ox*.35;ch.y=ny+oy*.35;ch.wn=[ox,oy];}
 // is the spider in somebody's light? returns where the light comes from
 function lightOnSpider(ch){
   if(player&&player.alive&&player.lightOn&&!charHidden(ch)){for(const l of playerLights()){const s=l.str===undefined?1:l.str;if(s<.2)continue;
@@ -2619,11 +2622,11 @@ function spGo(ch,gx,gy,sp,ts,noClimb){
   if(ch.cling==='roof'){const f=ch.wb.fp,inside=inR(f,gx,gy),tx=Math.max(f[0]+.6,Math.min(f[2]-.6,gx)),ty=Math.max(f[1]+.6,Math.min(f[3]-.6,gy)),ex=tx-ch.x,ey=ty-ch.y,e=Math.hypot(ex,ey);
     if(e>.3){const s=Math.min(e,sp*ts);ch.x+=ex/e*s;ch.y+=ey/e*s;ch.z=roofH(ch.wb,ch.x,ch.y);ch.dir=dirTo(ex,ey);ch.moving=true;ch.anim+=s;return true;}
     if(inside){ch.moving=false;return true;}
-    const ox=gx<f[0]?-1:gx>f[2]?1:0,oy=ox?0:(gy<f[1]?-1:gy>f[3]?1:0);ch.x=(ox<0?f[0]:ox>0?f[2]:ch.x)+ox*.7;ch.y=(oy<0?f[1]:oy>0?f[3]:ch.y)+oy*.7;ch.z=ch.wb.top;ch.cling='wall';ch.up=false;return true;}
+    const ox=gx<f[0]?-1:gx>f[2]?1:0,oy=ox?0:(gy<f[1]?-1:gy>f[3]?1:0);ch.x=(ox<0?f[0]:ox>0?f[2]:ch.x)+ox*.35;ch.y=(oy<0?f[1]:oy>0?f[3]:ch.y)+oy*.35;ch.wn=[ox,oy];ch.z=ch.wb.top;ch.cling='wall';ch.up=false;return true;}
   // on the ground: a building in the way gets climbed instead of walked around
   if(!noClimb&&!insideB(ch)){const b=bldAt(ch.x+ux*4,ch.y+uy*4);if(b&&b!==bldAt(ch.x,ch.y)&&ch.z<b.top-2){const f=b.fp;
     const nx=Math.max(f[0],Math.min(f[2],ch.x)),ny=Math.max(f[1],Math.min(f[3],ch.y)),ox=ch.x-nx,oy=ch.y-ny,ol=Math.hypot(ox,oy);
-    if(ol>0&&ol<6){ch.x=nx+ox/ol*.7;ch.y=ny+oy/ol*.7;ch.cling='wall';ch.up=true;ch.wb=b;ch.dir=dirTo(ux,uy);return true;}}}
+    if(ol>0&&ol<6){const ax=Math.abs(ox)>=Math.abs(oy);ch.wn=ax?[Math.sign(ox),0]:[0,Math.sign(oy)];ch.x=(ax?nx:ch.x)+ch.wn[0]*.35;ch.y=(ax?ch.y:ny)+ch.wn[1]*.35;ch.cling='wall';ch.up=true;ch.wb=b;ch.dir=dirTo(ux,uy);return true;}}}
   return goTo(ch,gx,gy,sp,ts);
 }
 function skitter(ch,ts){if(!ch.moving)return;ch.skT=(ch.skT||0)-ts;if(ch.skT<=0){ch.skT=95+rnd()*70;sfx('pajak_chrobot',ch.x,ch.y,ch.z,.32);}}

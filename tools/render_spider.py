@@ -78,10 +78,11 @@ for o in meshes:
 # ---------- poses from the model's own actions ----------
 ACT = {a.name: a for a in bpy.data.actions}
 print('ACTIONS', list(ACT))
-POSES = ['idle1', 'idle2', 'walk1', 'walk2', 'walk3', 'walk4', 'bite1', 'bite2', 'spit', 'jump1', 'jump2', 'd1', 'd2', 'd3']
+POSES = ['idle1', 'idle2', 'walk1', 'walk2', 'walk3', 'walk4', 'bite1', 'bite2', 'spit', 'jump1', 'jump2', 'd1', 'd2', 'd3', 'wu1', 'wu2', 'wu3', 'wu4', 'wd1', 'wd2', 'wd3', 'wd4']
 PF = {'idle1': ('Idle', 0), 'idle2': ('Idle', 50), 'walk1': ('Walk', 0), 'walk2': ('Walk', 5), 'walk3': ('Walk', 10), 'walk4': ('Walk', 15),
       'bite1': ('Attack', 5), 'bite2': ('Attack', 10), 'spit': ('Attack', 2), 'jump1': ('Jump', 4), 'jump2': ('Jump', 9),
-      'd1': ('Death', 6), 'd2': ('Death', 14), 'd3': ('Death', 25)}
+      'd1': ('Death', 6), 'd2': ('Death', 14), 'd3': ('Death', 25),
+      'wu1': ('Walk', 0), 'wu2': ('Walk', 5), 'wu3': ('Walk', 10), 'wu4': ('Walk', 15), 'wd1': ('Walk', 0), 'wd2': ('Walk', 5), 'wd3': ('Walk', 10), 'wd4': ('Walk', 15)}
 if not arm.animation_data: arm.animation_data_create()
 def set_pose(pi):
     an, f = PF[POSES[pi]]
@@ -91,7 +92,13 @@ def set_pose(pi):
         if act.slots: arm.animation_data.action_slot = act.slots[0]
     except Exception: pass
     scn.frame_set(int(f)); vl.update()
-    return 0.0
+    pb = arm.pose.bones['Abdomen']; pb.scale = (1.35, 1.45, 1.3)
+    hb = arm.pose.bones['Head']; hb.scale = (1.15, 1.15, 1.15); vl.update()
+    n = POSES[pi]
+    # on a wall: belly towards the facing direction (the wall), head up (wu) or down (wd)
+    if n.startswith('wu'): return Matrix.Rotation(-math.pi / 2, 4, 'X')
+    if n.startswith('wd'): return Matrix.Rotation(math.pi, 4, 'Z') @ Matrix.Rotation(math.pi / 2, 4, 'X')
+    return Matrix.Identity(4)
 gun = None
 # ---------- scene, camera, light ----------
 scn.render.engine = 'CYCLES'
@@ -171,12 +178,12 @@ t0 = time.time()
 for pose in poses:
     piv.matrix_world = Matrix.Diagonal((SCALE, SCALE, SCALE, 1)); vl.update()
     fall = set_pose(pose)
-    piv.rotation_mode = 'XYZ'; piv.rotation_euler = (0, 0, 0); vl.update(); piv.matrix_world = Matrix.Rotation(math.pi / 2, 4, 'Z') @ Matrix.Rotation(-fall, 4, 'X') @ Matrix.Diagonal((SCALE, SCALE, SCALE, 1)); piv.location = (0, 0, 0); vl.update()
+    piv.rotation_mode = 'XYZ'; piv.rotation_euler = (0, 0, 0); vl.update(); piv.matrix_world = Matrix.Rotation(math.pi / 2, 4, 'Z') @ fall @ Matrix.Diagonal((SCALE, SCALE, SCALE, 1)); piv.location = (0, 0, 0); vl.update()
     lift = -min_z(); piv.location = (0, 0, lift); vl.update()
     meta['poses'][pose] = {'joints': joints_engine()}
     for d in dirs:
         piv.rotation_euler = (0, 0, 0); vl.update()
-        piv.matrix_world = Matrix.Translation((0, 0, lift)) @ Matrix.Rotation(math.pi / 2 - d * math.pi / 4, 4, 'Z') @ Matrix.Rotation(-fall, 4, 'X') @ Matrix.Diagonal((SCALE, SCALE, SCALE, 1))
+        piv.matrix_world = Matrix.Translation((0, 0, lift)) @ Matrix.Rotation(math.pi / 2 - d * math.pi / 4, 4, 'Z') @ fall @ Matrix.Diagonal((SCALE, SCALE, SCALE, 1))
         vl.update()
         if MODE == 'preview':
             color_mode()
