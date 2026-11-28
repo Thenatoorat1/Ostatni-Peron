@@ -100,6 +100,22 @@ for i, (k, w, h) in enumerate(NEW):
     cell = cell[ys.min():ys.max() + 1, xs.min():xs.max() + 1]
     icons[k] = (fit(Image.fromarray(cell, 'RGBA'), w, h), w, h)
 
+# ---- sheet 3x3 (Magnific): strap lights, forage, antidote + plants growing on the map ----
+_P = _key('mag7/ikony_pajak.png'); _C3 = _P.shape[0] // 3
+def _cell(i):
+    c = _P[(i // 3) * _C3:(i // 3 + 1) * _C3, (i % 3) * _C3:(i % 3 + 1) * _C3].copy()
+    al = c[..., 3] > 128; ys, xs = np.nonzero(al); return c[ys.min():ys.max() + 1, xs.min():xs.max() + 1]
+for i, (k, w, h) in enumerate([('strap_light', 2, 1), ('strap_led', 2, 1), ('huba', 1, 1), ('piolun', 1, 2), ('krwawnik', 2, 2), ('antidote', 1, 1)]):
+    icons[k] = (fit(Image.fromarray(_cell(i), 'RGBA'), w, h), w, h)
+PL = {}
+for i, (k, wpx) in enumerate([('huba', 24), ('piolun', 22), ('krwawnik', 22)]):
+    im = Image.fromarray(_cell(6 + i), 'RGBA'); h = round(im.height * wpx / im.width)
+    im = im.resize((wpx * 2, h * 2), Image.LANCZOS).resize((wpx, h), Image.LANCZOS)
+    a = np.asarray(im).copy(); mg = np.minimum(a[..., 0].astype(int), a[..., 2]) - a[..., 1]; a[..., 3] = np.where((a[..., 3] > 110) & (mg < 45), 255, 0); sp = np.clip(mg + 12, 0, None); a[..., 0] = np.clip(a[..., 0] - sp * .9, 0, 255); a[..., 2] = np.clip(a[..., 2] - sp * 1.1, 0, 255); PL[k] = Image.fromarray(a, 'RGBA')
+px = 0; prects = {}; ph = max(im.height for im in PL.values()); pa = Image.new('RGBA', (sum(im.width + 1 for im in PL.values()), ph))
+for k, im in PL.items(): pa.alpha_composite(im, (px, 0)); prects[k] = [px, 0, im.width, im.height]; px += im.width + 1
+pa.save('real/assets/plants.png', optimize=True); json.dump(prects, open('real/assets/plants.json', 'w'))
+
 # simple shelf packing
 order = sorted(icons, key=lambda k: -icons[k][0].height)
 AW = 16 * CELL; x = y = rowh = 0; rects = {}

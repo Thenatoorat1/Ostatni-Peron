@@ -45,7 +45,7 @@ def add_tile(c, g, m, ss, shift=(0.0, 0.0)):
 
 out = {}
 # ---- old enemies and dog ----
-for key in ('zlom', 'pies'):
+for key in ('zlom', 'pies', 'pajak'):
     meta = json.load(open(f'out2_{key}/meta.json')); parts = meta['parts']; frames = []
     for d in range(8):
         for pose in range(len(meta['poseNames'])):
