@@ -77,6 +77,7 @@ button kbd{font-family:var(--f-term);font-size:17px;color:var(--amber);margin-ri
       <div class="lbl">SYMULACJA</div>
       <div id="side">
         <button id="bSlow"><kbd>␣</kbd>Zwolnij</button>
+        <button id="bDoor"><kbd>F</kbd>Drzwi</button>
         <button id="bReset"><kbd>R</kbd>Od nowa</button>
       </div>
     </div>
@@ -145,7 +146,8 @@ async function loadAssets(){
   for(const m of wj.objects){
     const layers=m.layers.map(t=>{const r=wj.rects[t],col=cut(wc,r),g=cut(wg,r),n=col.length,dep=new Float32Array(n),zh=new Float32Array(n);
       const mm=cut(wm,r),mt=new Uint8Array(n);for(let k=0;k<n;k++){const v=g[k];dep[k]=(((v&255)<<8)|((v>>8)&255))/16;zh[k]=(v>>16)&255;mt[k]=mm[k]&255;}return {col,dep,zh,mt};});
-    list.push({name:m.name,mat:m.mat,ex:m.ex,x0:m.x0,y0:m.y0,w:m.w,h:m.h,layers,thick:m.thick,c:m.c,fp:m.fp,blocks:m.blocks,topple:m.topple});
+    if(m.lflags)m.lflags.forEach((f,i)=>{if(!f)return;const ly=layers[i];if(f.cut!==undefined){ly.cut=f.cut;ly.hide=true;}if(f.door){ly.door=f.door;if(f.door==='open'){ly.hide=true;ly.ghost=true;}}});
+    list.push({name:m.name,mat:m.mat,ex:m.ex,x0:m.x0,y0:m.y0,w:m.w,h:m.h,layers,thick:m.thick,c:m.c,fp:m.fp,blocks:m.blocks&&!m.bld,topple:m.topple,bld:m.bld,parent:m.parent});
   }
   PRISTINE=list;
   // characters
@@ -163,12 +165,13 @@ async function loadAssets(){
   }
 }
 function resetWorld(){
-  objs=PRISTINE.map(o=>Object.assign({},o,{boom:false,layers:o.layers.map(l=>({col:l.col.slice(),dep:l.dep,zh:l.zh,mt:l.mt}))}));
+  objs=PRISTINE.map(o=>Object.assign({},o,{boom:false,layers:o.layers.map(l=>({col:l.col.slice(),dep:l.dep,zh:l.zh,mt:l.mt,cut:l.cut,hide:l.hide,ghost:l.ghost,door:l.door}))}));
   DEB=objs.length;
   objs.push({name:'Gruz',mat:2,ex:false,x0:0,y0:0,w:BW,h:BH,layers:[{col:new Uint32Array(PIX),dep:new Float32Array(PIX).fill(-1e9),zh:new Float32Array(PIX)}],thick:1.5,c:[0,0,0]});
   blocked.fill(0);
   for(const o of objs){if(!o.blocks||!o.fp)continue;const [a,b,c,d]=o.fp;for(let y=Math.max(0,Math.floor(b));y<Math.min(D,Math.ceil(d));y++)for(let x=Math.max(0,Math.floor(a));x<Math.min(W,Math.ceil(c));x++)blocked[x+y*W]=1;}
   for(const o of objs){o.cx=o.c[0];o.cy=o.c[1];o.cz=o.c[2];}
+  initBuildings();
 }
 let objs=[],DEB=0;
 
@@ -188,14 +191,15 @@ function compose(x0,y0,x1,y1){
   for(let oi=0;oi<objs.length;oi++){
     const ob=objs[oi],ax0=Math.max(x0,ob.x0),ax1=Math.min(x1,ob.x0+ob.w-1),ay0=Math.max(y0,ob.y0),ay1=Math.min(y1,ob.y0+ob.h-1);
     if(ax1<ax0||ay1<ay0)continue;const sg=oi===0||oi===DEB;
-    for(let L=0;L<ob.layers.length;L++){const ly=ob.layers[L],C=ly.col,Dp=ly.dep,Z=ly.zh;
+    const oclip=ob.clipZ===undefined?1e9:ob.clipZ;
+    for(let L=0;L<ob.layers.length;L++){const ly=ob.layers[L],C=ly.col,Dp=ly.dep,Z=ly.zh;if(ly.hide)continue;const clip=ly.clip===undefined?oclip:ly.clip;
       for(let y=ay0;y<=ay1;y++){let k=(y-ob.y0)*ob.w+(ax0-ob.x0),p=y*BW+ax0;
-        for(let x=ax0;x<=ax1;x++,k++,p++){const c=C[k];if(!c)continue;const d=Dp[k];if(d<=sDep[p])continue;sDep[p]=d;sZ[p]=Z[k];sObj[p]=oi;sLay[p]=L;sCol[p]=sg&&shMask[p]?darkP(c,.6):c;}}}
+        for(let x=ax0;x<=ax1;x++,k++,p++){const c=C[k];if(!c||Z[k]>clip)continue;const d=Dp[k];if(d<=sDep[p])continue;sDep[p]=d;sZ[p]=Z[k];sObj[p]=oi;sLay[p]=L;sCol[p]=sg&&shMask[p]?darkP(c,.6):c;}}}
   }
 }
 function computeShadows(){
   shMask.fill(0);
-  for(let oi=1;oi<DEB;oi++){const ob=objs[oi];for(const ly of ob.layers){const C=ly.col,Z=ly.zh;for(let y=0;y<ob.h;y++)for(let x=0;x<ob.w;x++){const k=y*ob.w+x;if(!C[k])continue;const z=Z[k];if(z<.4)continue;const tx=Math.round(ob.x0+x+1.8*z),ty=Math.round(ob.y0+y+2.3*z);if(tx<0||ty<0||tx>=BW-1||ty>=BH-1)continue;const p=ty*BW+tx;shMask[p]=1;shMask[p+1]=1;shMask[p+BW]=1;shMask[p+BW+1]=1;}}}
+  for(let oi=1;oi<DEB;oi++){const ob=objs[oi];for(const ly of ob.layers){if(ly.cut!==undefined||ly.ghost)continue;const C=ly.col,Z=ly.zh;for(let y=0;y<ob.h;y++)for(let x=0;x<ob.w;x++){const k=y*ob.w+x;if(!C[k])continue;const z=Z[k];if(z<.4)continue;const tx=Math.round(ob.x0+x+1.8*z),ty=Math.round(ob.y0+y+2.3*z);if(tx<0||ty<0||tx>=BW-1||ty>=BH-1)continue;const p=ty*BW+tx;shMask[p]=1;shMask[p+1]=1;shMask[p+BW]=1;shMask[p+BW+1]=1;}}}
 }
 let dx0=1e9,dy0=1e9,dx1=-1e9,dy1=-1e9,shadowDirty=false,shadowTimer=0;
 function dirty(x0,y0,x1,y1){if(x0<dx0)dx0=x0;if(y0<dy0)dy0=y0;if(x1>dx1)dx1=x1;if(y1>dy1)dy1=y1;}
@@ -453,7 +457,7 @@ function eraseSphere(oi,cx,cy,cz,r,collect,scorch,only){
   const ob=objs[oi],P=proj(cx,cy,cz),rr0=r*1.9,rx=rr0*2.6+3,ry=rr0*2.9+3;
   const ax0=Math.max(ob.x0,Math.floor(P[0]-rx)),ax1=Math.min(ob.x0+ob.w-1,Math.ceil(P[0]+rx)),ay0=Math.max(ob.y0,Math.floor(P[1]-ry)),ay1=Math.min(ob.y0+ob.h-1,Math.ceil(P[1]+ry));
   if(ax1<ax0||ay1<ay0)return 0;let n=0,sandAt=null;
-  for(const ly of ob.layers){const C=ly.col,Dp=ly.dep,Z=ly.zh,MT=oi===DEB?debMt:ly.mt;
+  for(const ly of ob.layers){if(ly.ghost)continue;const C=ly.col,Dp=ly.dep,Z=ly.zh,MT=oi===DEB?debMt:ly.mt;
     for(let y=ay0;y<=ay1;y++)for(let x=ax0;x<=ax1;x++){const k=(y-ob.y0)*ob.w+(x-ob.x0),c=C[k];if(!c)continue;
       const m=MT?MT[k]:2;if(only&&m!==only)continue;
       toWorld(x,Dp[k],Z[k],TW);const dist=Math.hypot(TW[0]-cx,TW[1]-cy,TW[2]-cz),rf=only?1:matOf(m).rf,rr=r*rf*(.85+.3*hsh(x,y,3));
@@ -473,7 +477,7 @@ let chunks=[],lastHitDir=null;
 function checkSupport(oi){
   if(oi===0||oi===DEB)return;
   const ob=objs[oi],n=ob.w*ob.h,L=ob.layers.length,w=ob.w,vis=new Uint8Array(n*L),st=new Int32Array(n*L);let sp=0;
-  for(let l=0;l<L;l++){const C=ob.layers[l].col,Z=ob.layers[l].zh;for(let k=0;k<n;k++)if(C[k]&&Z[k]<=1.3){vis[l*n+k]=1;st[sp++]=l*n+k;}}
+  for(let l=0;l<L;l++){const ly0=ob.layers[l];if(ly0.cut!==undefined||ly0.ghost){vis.fill(1,l*n,(l+1)*n);continue;}const C=ly0.col,Z=ly0.zh;for(let k=0;k<n;k++)if(C[k]&&Z[k]<=1.3){vis[l*n+k]=1;st[sp++]=l*n+k;}}
   while(sp){const id=st[--sp],l=(id/n)|0,k=id-l*n,ly=ob.layers[l],d=ly.dep[k],x=k%w;
     const tryN=(kk)=>{const j=l*n+kk;if(!vis[j]&&ly.col[kk]&&Math.abs(ly.dep[kk]-d)<2.5){vis[j]=1;st[sp++]=j;}};
     if(x>0)tryN(k-1);if(x<w-1)tryN(k+1);if(k>=w)tryN(k-w);if(k+w<n)tryN(k+w);
@@ -580,7 +584,7 @@ function gHit(x,y,z){
   if(z<=dHAt(x,y))return GROUND_HIT;
   const sx=Math.round((x-y)*2+OX),sy=Math.round(x+y-2*z+OY),d=x+y+z;
   for(let oi=1;oi<objs.length;oi++){const ob=objs[oi],u=sx-ob.x0,v=sy-ob.y0;if(u<0||v<0||u>=ob.w||v>=ob.h)continue;const k=v*ob.w+u;
-    for(let L=0;L<ob.layers.length;L++){const ly=ob.layers[L];if(!ly.col[k])continue;const dd=d-ly.dep[k];if(dd<.8&&dd>-3)return {oi,L,k,m:oi===DEB?debMt[sy*BW+sx]:(ly.mt?ly.mt[k]:2)};}}
+    for(let L=0;L<ob.layers.length;L++){const ly=ob.layers[L];if(ly.ghost||!ly.col[k])continue;const dd=d-ly.dep[k];if(dd<.8&&dd>-3)return {oi,L,k,m:oi===DEB?debMt[sy*BW+sx]:(ly.mt?ly.mt[k]:2)};}}
   return null;
 }
 
@@ -602,17 +606,20 @@ function rotV(o,kx,ky){const a=o[kx];o[kx]=-o[ky];o[ky]=a;}
 // rotate the whole world by 90°: world data turns, sprites of objects are mirrored (they only exist from one side)
 function rot1(){
   for(const ch of chunks)shatter(ch);chunks=[];
+  const RB=blds.map(b=>{const oc=[(b.fp[0]+b.fp[2])/2,(b.fp[1]+b.fp[3])/2];return {b,oc,nc:rp(oc[0],oc[1])};}),chB=chars.map(ch=>RB.find(r=>inR(r.b.fp,ch.x,ch.y)));
   // static objects
   for(let oi=1;oi<DEB;oi++){
     const o=objs[oi];if(!o.fp)continue;
-    const cx=(o.fp[0]+o.fp[2])/2,cy=(o.fp[1]+o.fp[3])/2,a=proj(cx,cy,0),[ncx,ncy]=rp(cx,cy),b=proj(ncx,ncy,0),dd=(ncx+ncy)-(cx+cy);
+    const PR=o.parent?RB.find(r=>r.b.name===o.parent):null;
+    const cx=(o.fp[0]+o.fp[2])/2,cy=(o.fp[1]+o.fp[3])/2,a=proj(cx,cy,0),[ncx,ncy]=PR?reflB(PR.b,PR.oc,PR.nc,[cx,cy]):rp(cx,cy),b=proj(ncx,ncy,0),dd=(ncx+ncy)-(cx+cy);
     const w=o.w,h=o.h,nx0=Math.round(a[0]+b[0])-o.x0-(w-1),ny0=o.y0+Math.round(b[1]-a[1]);
     o.layers=o.layers.map(ly=>{const col=new Uint32Array(w*h),dep=new Float32Array(w*h),zh=new Float32Array(w*h),mt=new Uint8Array(w*h),fs=ly.fs?new Uint8Array(w*h):null;
       for(let y=0;y<h;y++)for(let x=0;x<w;x++){const k=y*w+x,k2=y*w+(w-1-x);col[k2]=ly.col[k];dep[k2]=ly.dep[k]+dd;zh[k2]=ly.zh[k];mt[k2]=ly.mt?ly.mt[k]:2;if(fs)fs[k2]=ly.fs[k];}
-      const nl={col,dep,zh,mt};if(fs)nl.fs=fs;return nl;});
+      const nl={col,dep,zh,mt,cut:ly.cut,hide:ly.hide,ghost:ly.ghost,door:ly.door};if(fs)nl.fs=fs;return nl;});
     o.x0=nx0;o.y0=ny0;
-    const p1=rp(o.fp[0],o.fp[1]),p2=rp(o.fp[2],o.fp[3]);o.fp=[Math.min(p1[0],p2[0]),Math.min(p1[1],p2[1]),Math.max(p1[0],p2[0]),Math.max(p1[1],p2[1])];
-    const c=rp(o.cx,o.cy);o.cx=c[0];o.cy=c[1];
+    if(PR){o.fp=reflRect(PR.b,PR.oc,PR.nc,o.fp);const c=reflB(PR.b,PR.oc,PR.nc,[o.cx,o.cy]);o.cx=c[0];o.cy=c[1];}
+    else{const p1=rp(o.fp[0],o.fp[1]),p2=rp(o.fp[2],o.fp[3]);o.fp=[Math.min(p1[0],p2[0]),Math.min(p1[1],p2[1]),Math.max(p1[0],p2[0]),Math.max(p1[1],p2[1])];
+    const c=rp(o.cx,o.cy);o.cx=c[0];o.cy=c[1];}
   }
   // ground: re-sample the current ground (keeps scorch marks and blood)
   {const L=objs[0].layers[0],old=L.col.slice();
@@ -625,7 +632,8 @@ function rot1(){
   {const o=dHt.slice();for(let cy=0;cy<DDH;cy++)for(let cx=0;cx<DW;cx++)dHt[cx*DW+(DW-1-cy)]=o[cy*DW+cx];}
   {const o=blocked.slice();for(let y=0;y<D;y++)for(let x=0;x<W;x++)blocked[x*W+(W-1-y)]=o[y*W+x];}
   // moving things
-  for(const ch of chars){rotXY(ch,'x','y');rotXY(ch,'tx','ty');rotXY(ch,'hx','hy');ch.cover=null;ch.think=0;ch.dir=(ch.dir+2)%8;}
+  chars.forEach((ch,i)=>{const r=chB[i];if(r){const p=reflB(r.b,r.oc,r.nc,[ch.x,ch.y]);ch.x=p[0];ch.y=p[1];}else rotXY(ch,'x','y');rotXY(ch,'tx','ty');rotXY(ch,'hx','hy');ch.cover=null;ch.think=0;ch.path=null;ch.dir=(ch.dir+2)%8;});
+  for(const r of RB)rotBuilding(r.b,r.oc,r.nc);pBlkAge=1e9;
   rotFire();
   for(let i=0;i<np;i++){const r=rp(px[i],py[i]);px[i]=r[0];py[i]=r[1];const a=pvx[i];pvx[i]=-pvy[i];pvy[i]=a;}
   for(const f of frags){rotXY(f,'x','y');rotV(f,'vx','vy');}
@@ -642,13 +650,78 @@ function rot1(){
 function rotateView(dir){if(!ready)return;const n=dir>0?1:3;for(let i=0;i<n;i++)rot1();log(`Kamera: ${['północ','zachód','południe','wschód'][ROT]}.`);}
 
 
+// ================= buildings: doors, walkable interiors, stairs, Fallout-style cutaway =================
+let blds=[],viewB=null,viewS=-1,doorHint=0;
+const inR=(r,x,y)=>x>=r[0]&&x<=r[2]&&y>=r[1]&&y<=r[3];
+function initBuildings(){
+  blds=[];viewB=null;viewS=-1;
+  objs.forEach((o,oi)=>{if(o.bld){o.bld=JSON.parse(JSON.stringify(o.bld));o.bld.oi=oi;o.bld.name=o.name;o.bld.open=false;blds.push(o.bld);}});
+  for(const b of blds){const di=objs.findIndex(o=>o.parent===b.name);b.door.oi=di;}
+}
+function bldAt(x,y){for(const b of blds)if(inR(b.fp,x,y))return b;return null;}
+function interiorOf(b,x,y){const w=b.wall;return x>b.fp[0]+w&&x<b.fp[2]-w&&y>b.fp[1]+w&&y<b.fp[3]-w;}
+function stairZ(b,x,y){const s=b.stairs,dx=s.high[0]-s.low[0],dy=s.high[1]-s.low[1],t=((x-s.low[0])*dx+(y-s.low[1])*dy)/(dx*dx+dy*dy);return Math.max(0,Math.min(1,t))*s.z1;}
+// heights a character can stand on at (x,y) inside a building
+function surfaces(b,x,y,out){
+  out.length=0;
+  if(!interiorOf(b,x,y)){if(b.open&&inR(b.door.rect,x,y))out.push(0);if(b.roofWalk)out.push(b.top);return out;}
+  const st=b.stairs&&inR(b.stairs.rect,x,y);
+  for(let i=0;i<b.floors.length;i++){const f=b.floors[i];if(st)continue;let hole=false;for(const h of b.holes)if(h.storey===i&&inR(h.rect,x,y))hole=true;if(hole)continue;
+    let top=f;for(const p of b.props)if(p.z0===f&&inR(p.rect,x,y))top=p.z1;out.push(top);}
+  if(st)out.push(stairZ(b,x,y));
+  if(b.roofWalk)out.push(b.top);
+  return out;
+}
+const SURF=[];
+function walkH(x,y,z){
+  if(x<1||y<1||x>=W-1||y>=D-1)return null;
+  const b=bldAt(x,y);
+  if(!b){if(blocked[Math.floor(x)+Math.floor(y)*W])return null;return z<3.6?0:null;}
+  surfaces(b,x,y,SURF);let best=null,bd=3.6;for(const s of SURF){const d=Math.abs(s-z);if(d<bd){bd=d;best=s;}}return best;
+}
+function walkAll(x,y,z){const h=walkH(x,y,z);if(h===null)return null;for(const [dx,dy] of [[1.5,0],[-1.5,0],[0,1.5],[0,-1.5]])if(walkH(x+dx,y+dy,h)===null)return null;return h;}
+function storeyOf(b,z){let s=0;for(let i=0;i<b.floors.length;i++)if(z>=b.floors[i]-4)s=i;return s;}
+function insideB(ch){const b=bldAt(ch.x,ch.y);if(!b||!interiorOf(b,ch.x,ch.y)||ch.z>b.top-6)return null;return b;}
+// show the storey the player is on: facade, roof and upper storeys disappear
+function setView(b,s){
+  if(b===viewB&&s===viewS)return;
+  const touch=o=>dirty(o.x0,o.y0,o.x0+o.w,o.y0+o.h);
+  if(viewB){const o=objs[viewB.oi];for(const ly of o.layers){ly.hide=ly.cut!==undefined;ly.clip=undefined;}const d=objs[viewB.door.oi];if(d)d.clipZ=undefined;touch(o);if(d)touch(d);}
+  viewB=b;viewS=s;
+  if(b){const o=objs[b.oi];o.layers.forEach((ly,i)=>{ly.clip=undefined;ly.hide=ly.cut===undefined?i!==0:ly.cut!==s;if(i===0)ly.clip=b.floors[s]+b.stub;});const d=objs[b.door.oi];if(d){d.clipZ=b.floors[s]+b.stub;touch(d);}touch(o);
+    log(b.floors.length>1?`${b.name}: ${s?'piętro':'parter'}.`:`${b.name}: w środku.`);}
+}
+function updView(){const b=player?insideB(player):null;setView(b||null,b?storeyOf(b,player.z):-1);}
+function charHidden(ch){if(!viewB||ch===player)return false;const b=bldAt(ch.x,ch.y);if(b!==viewB)return false;return storeyOf(b,ch.z)>viewS||ch.z>b.top-6;}
+// doors
+function doorCenter(b){const r=b.door.rect;return [(r[0]+r[2])/2,(r[1]+r[3])/2];}
+function nearDoor(ch,r){let best=null,bd=r||10;for(const b of blds){if(b.door.oi<0||objs[b.door.oi].gone)continue;const c=doorCenter(b),d=Math.hypot(c[0]-ch.x,c[1]-ch.y);if(d<bd&&Math.abs(ch.z)<4){bd=d;best=b;}}return best;}
+function setDoor(b,open,who){
+  if(b.open===open)return;const d=objs[b.door.oi];
+  if(!open){for(const ch of chars){if(inR(b.door.rect,ch.x,ch.y)||Math.hypot(ch.x-doorCenter(b)[0],ch.y-doorCenter(b)[1])<3.5){if(who===player)log('Coś blokuje drzwi.');return;}}}
+  b.open=open;
+  for(const ly of d.layers){const on=(ly.door==='open')===open;ly.hide=!on;ly.ghost=!on;}
+  dirty(d.x0,d.y0,d.x0+d.w,d.y0+d.h);shadowDirty=true;
+  sfx('drewno',doorCenter(b)[0],doorCenter(b)[1],5,.45);
+  if(who===player)log(open?'Otwierasz drzwi.':'Zamykasz drzwi.');
+}
+function toggleDoor(){if(!ready||!player.alive)return;const b=nearDoor(player,14);if(!b){log('Nie ma tu drzwi.');return;}setDoor(b,!b.open,player);}
+// rotation: building features follow the mirrored picture (swap of local x/y), not a plain rotation
+function reflB(b,oc,nc,p){return [nc[0]+(p[1]-oc[1]),nc[1]+(p[0]-oc[0])];}
+function reflRect(b,oc,nc,r){const a=reflB(b,oc,nc,[r[0],r[1]]),c=reflB(b,oc,nc,[r[2],r[3]]);return [Math.min(a[0],c[0]),Math.min(a[1],c[1]),Math.max(a[0],c[0]),Math.max(a[1],c[1])];}
+function rotBuilding(b,oc,nc){
+  b.fp=reflRect(b,oc,nc,b.fp);b.door.rect=reflRect(b,oc,nc,b.door.rect);
+  if(b.stairs){b.stairs.rect=reflRect(b,oc,nc,b.stairs.rect);b.stairs.low=reflB(b,oc,nc,b.stairs.low);b.stairs.high=reflB(b,oc,nc,b.stairs.high);}
+  for(const h of b.holes)h.rect=reflRect(b,oc,nc,h.rect);for(const p of b.props)p.rect=reflRect(b,oc,nc,p.rect);
+}
+
 // ================= characters runtime =================
 let chars=[],player=null,detached=[],emitters=[],refs=[];
 function mkChar(name,type,x,y,z,dir,team){const T=TYPES[type];return {name,T,kind:T.kind,x,y,z,dir,pose:0,anim:0,alive:true,dying:0,att:T.defs.map(()=>true),hp:T.defs.map(d=>d.hp0),wounds:[],canShoot:T.kind==='human',cool:90+rnd()*160,legsLost:0,vz:0,fallFrom:z,team,moving:false,ax:0,ay:0,dd:0,bb:null,tx:x,ty:y,hx:x,hy:y,wait:rnd()*60,bite:0,biteT:0,acc:.04,
   stance:'stand',gait:'walk',recoil:0,aim:0,ai:'idle',cover:null,think:0,phase:0,peeking:false,dig:0,burn:0,charr:0,deathSeq:'A',side:rnd()<.5?1:-1,roof:false};}
 function spawnChars(){
   player=mkChar('Ty','ty',214,268,0,4,1);
-  const e1=mkChar('Złomiarz','zlom',112,184,0,7,2),e2=mkChar('Złomiarz','zlom',158,178,0,7,2),e3=mkChar('Złomiarz na dachu','zlom',226,72,48,7,2);e3.acc=.015;e3.roof=true;
+  const e1=mkChar('Złomiarz','zlom',112,184,0,7,2),e2=mkChar('Złomiarz','zlom',158,178,0,7,2),e3=mkChar('Złomiarz na dachu','zlom',226,72,36.2,7,2);e3.acc=.015;e3.roof=true;
   const d=mkChar('Zdziczały pies','pies',140,206,0,7,2);d.canShoot=false;d.tx=150;d.ty=215;d.hx=150;d.hy=220;
   chars=[player,e1,e2,e3,d];
 }
@@ -710,7 +783,7 @@ function cast(M,T,shooter){
     for(const ch of chars){if(ch===shooter&&ch.alive)continue;const h=charHit(ch,sx,sy);if(h&&d<=h.d+1.2&&d>=h.d-4.5)return {t:'char',ch,pi:h.pi,P:[x,y,z]};}
     for(const dp of detached){const h=detHit(dp,sx,sy);if(h&&d<=h.d+1.2&&d>=h.d-3)return {t:'det',dp,P:[x,y,z]};}
     for(let oi=1;oi<objs.length;oi++){const ob=objs[oi];const u=sx-ob.x0,v=sy-ob.y0;if(u<0||v<0||u>=ob.w||v>=ob.h)continue;const k=v*ob.w+u;
-      for(const ly of ob.layers){if(!ly.col[k])continue;const pd=ly.dep[k];if(d<=pd+1.2&&d>=pd-ob.thick){toWorld(sx,pd,ly.zh[k],TW);
+      for(const ly of ob.layers){if(ly.ghost||!ly.col[k])continue;const pd=ly.dep[k];if(d<=pd+1.2&&d>=pd-ob.thick){toWorld(sx,pd,ly.zh[k],TW);
         if(ly.mt&&ly.mt[k]===M_GLASS){glassBreak(oi,[TW[0],TW[1],TW[2]],[dx,dy,dz],1.6);continue;}
         return {t:'static',oi,P:[TW[0],TW[1],TW[2]]};}}}
   }
@@ -926,16 +999,18 @@ function rotFire(){
 let shake=0,slow=false;const keys={};
 function supported(ch){
   if(ch.z<=.05)return true;
+  if(bldAt(ch.x,ch.y)){const h=walkH(ch.x,ch.y,ch.z);if(h!==null&&Math.abs(h-ch.z)<.7)return true;}
   for(const [ox,oy] of [[0,0],[1.2,0],[-1.2,0],[0,1.2],[0,-1.2]]){const x=ch.x+ox,y=ch.y+oy,z=ch.z-.4,sx=Math.round((x-y)*2+OX),sy=Math.round(x+y-2*z+OY),dq=x+y+z;
     for(let oi=1;oi<objs.length;oi++){const ob=objs[oi],u=sx-ob.x0,v=sy-ob.y0;if(u<0||v<0||u>=ob.w||v>=ob.h)continue;const k=v*ob.w+u;
-      for(const ly of ob.layers){if(ly.col[k]&&ly.dep[k]>=dq-3&&ly.dep[k]<=dq+3)return true;}}}
+      for(const ly of ob.layers){if(!ly.ghost&&ly.col[k]&&ly.dep[k]>=dq-3&&ly.dep[k]<=dq+3)return true;}}}
   return false;
 }
-function freeAt(x,y){for(const [dx,dy] of [[0,0],[1.5,0],[-1.5,0],[0,1.5],[0,-1.5]]){const xx=Math.floor(x+dx),yy=Math.floor(y+dy);if(xx<1||yy<1||xx>=W-1||yy>=D-1||blocked[xx+yy*W])return false;}return true;}
+function freeAt(x,y,z){return walkAll(x,y,z||0)!==null;}
 function moveChar(ch,vx,vy,ts){
   if(!vx&&!vy){ch.moving=false;return;}
   const nx=ch.x+vx*ts,ny=ch.y+vy*ts;let moved=false;
-  if(freeAt(nx,ch.y)){ch.x=nx;moved=true;}if(freeAt(ch.x,ny)){ch.y=ny;moved=true;}
+  let h=walkAll(nx,ch.y,ch.z);if(h!==null){ch.x=nx;ch.z=h;moved=true;}h=walkAll(ch.x,ny,ch.z);if(h!==null){ch.y=ny;ch.z=h;moved=true;}
+  if(!moved&&ch!==player&&ch.alive){const b=nearDoor(ch,9);if(b&&!b.open)setDoor(b,true,ch);}
   ch.moving=moved;if(moved)ch.anim+=Math.hypot(vx,vy)*ts;
 }
 // ================= character movement, stances and animation =================
@@ -1206,8 +1281,8 @@ function drawWorld(){
   refs.length=0;
   drawFirePix();
   for(const ch of chars){const P=proj(ch.x,ch.y,ch.z);ch.ax=Math.round(P[0]);ch.ay=Math.round(P[1]);ch.dd=ch.x+ch.y+ch.z;charShadow(ch);}
-  for(const ch of chars)ring(ch);
-  for(const ch of chars)drawChar(ch);
+  for(const ch of chars)if(!charHidden(ch))ring(ch);
+  for(const ch of chars)if(!charHidden(ch))drawChar(ch);
   for(const dp of detached)drawDetached(dp);
   drawFrags();drawTopples();
   for(const c of chunks){const dz=c.dz;for(let j=0;j<c.n;j++){const sx=c.sx[j],sy=Math.round(c.sy[j]-2*dz);if(sy<0||sy>=BH)continue;const p=sy*BW+sx,d=c.dep[j]+dz;if(d>fDep[p]){fDep[p]=d;fCol[p]=c.col[j];fPick[p]=-1;}}}
@@ -1268,7 +1343,7 @@ function setW(i){cur=i;document.querySelectorAll('#weapons button').forEach(b=>b
 document.querySelectorAll('#weapons button').forEach(b=>b.addEventListener('click',()=>setW(+b.dataset.w)));
 const bSlow=document.getElementById('bSlow');
 function toggleSlow(){slow=!slow;bSlow.classList.toggle('on',slow);}
-bSlow.addEventListener('click',toggleSlow);
+bSlow.addEventListener('click',toggleSlow);document.getElementById('bDoor').addEventListener('click',toggleDoor);
 document.getElementById('bReset').addEventListener('click',()=>reset());
 const stage=document.getElementById('stage');
 addEventListener('keydown',e=>{
@@ -1281,6 +1356,7 @@ addEventListener('keydown',e=>{
   else if((k==='x'||k==='z')&&ready&&player.alive)setStance(player,player.stance==='prone'?'stand':'prone');
   else if(e.key===' '){e.preventDefault();toggleSlow();}
   else if(k==='r')reset();
+  else if(k==='f')toggleDoor();
   else if(k==='q')rotateView(-1);
   else if(k==='e')rotateView(1);
   else if(e.key==='+'||e.key==='=')setZoom(zoom*1.25);
@@ -1310,7 +1386,7 @@ function reset(){
   np=0;chunks=[];frags=[];topples=[];sandLeaks=[];debMt.fill(0);detached=[];emitters=[];grenades=[];pending=[];tracers=[];flashes=[];smoke=[];fire=[];dHt.fill(0);
   ROT=0;resetWorld();initGroundFuel();spawnChars();computeShadows();compose(0,0,BW-1,BH-1);
   document.getElementById('dead').hidden=true;
-  logEl.innerHTML='';log('Ulica Kolejowa. Złomiarze za barierami, jeden na dachu pawilonu, wilczur przy wraku.');log('WASD ruch, Shift bieg, C kucanie i skradanie, X czołganie. Klik strzał, 1–5 broń (5 mołotow).');log('Q/E obrót kamery, kółko myszy zoom, M dźwięk. Złomiarze chodzą po okolicy, dopóki ich nie zaalarmujesz.');
+  logEl.innerHTML='';log('Ulica Kolejowa. Złomiarze za barierami, jeden na dachu pawilonu, wilczur przy wraku.');log('WASD ruch, Shift bieg, C kucanie i skradanie, X czołganie. Klik strzał, 1–5 broń (5 mołotow).');log('F otwiera drzwi. Wejdź do kamienicy i po schodach na piętro. Q/E obrót kamery, kółko myszy zoom, M dźwięk. Złomiarze chodzą po okolicy, dopóki ich nie zaalarmujesz.');
 }
 
 // ================= loop =================
@@ -1318,7 +1394,8 @@ let last=performance.now(),fc=0,fpsT=last,fps=60;
 function frame(now){
   const dt=Math.min(50,now-last);last=now;const ts=(dt/16.67)*(slow?.25:1);
   if(cool>0)cool-=dt/16.67;
-  updChars(ts);updDetached(ts);updEmitters(ts);updChunks(ts);updTopples(ts);updFrags(ts);updSandLeaks(ts);updParticles(ts);updGrenades(ts);updFire(ts);updFx(ts);
+  updChars(ts);updDetached(ts);updEmitters(ts);updChunks(ts);updTopples(ts);updFrags(ts);updSandLeaks(ts);updParticles(ts);updGrenades(ts);updFire(ts);updFx(ts);updView();
+  {const b=player.alive?nearDoor(player,14):null;if(b&&b!==doorHint){doorHint=b;log(`${b.name}: drzwi ${b.open?'otwarte':'zamknięte'}. F otwiera i zamyka.`);}else if(!b)doorHint=0;}
   flushDirty(ts);
   fCol.set(sCol);fDep.set(sDep);fZ.set(sZ);fPick.set(sObj);shMark.fill(0);
   drawWorld();

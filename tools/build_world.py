@@ -208,6 +208,175 @@ for (cx, cy, hh) in [(292, 40, 300), (286, 120, 270), (20, 130, 280), (14, 40, 3
 for (cx, cy, hh) in [(40, 250, 200), (282, 264, 180)]:
     place_cyl_img(birch, (ys2.min(), ys2.max() + 1, xs2.min(), xs2.max() + 1), hh / bh, 'Brzoza', 5, cx, cy, 1.6)
 
+# ---------------- enterable buildings: door objects and cutaway storey layers ----------------
+# Each building gets one extra layer per storey: the scene ray-cast as boxes (floor slabs, back walls up to the ceiling,
+# front walls cut to a low stub like in Fallout, stairs, furniture). The engine shows that layer instead of the facade
+# while the player is inside on that storey.
+def obj_grid(o):
+    h, w = o['h'], o['w']
+    yy, xx = np.mgrid[0:h, 0:w]
+    sx = xx + o['x0'] + 0.5; sy = yy + o['y0'] + 0.5
+    return ((sx - OX) / 2 + (sy - OY)) / 2, ((sy - OY) - (sx - OX) / 2) / 2
+
+def box_cast(x0r, y0r, boxes):
+    """boxes: list of (x0,y0,z0,x1,y1,z1, style). Returns t, face (0 +x,1 +y,2 top), box index."""
+    h, w = x0r.shape
+    best = np.full((h, w), -1.0); face = np.zeros((h, w), np.int8); bi = np.full((h, w), -1, np.int32)
+    for i, (bx0, by0, bz0, bx1, by1, bz1, st) in enumerate(boxes):
+        tx1 = bx1 - x0r; ty1 = by1 - y0r
+        thi = np.minimum(np.minimum(tx1, ty1), bz1)
+        tlo = np.maximum(np.maximum(np.maximum(bx0 - x0r, by0 - y0r), bz0), 0)
+        hit = (tlo <= thi + 1e-6) & (thi >= 0) & (thi > best)
+        f = np.where((tx1 <= ty1) & (tx1 <= bz1), 0, np.where(ty1 <= bz1, 1, 2))
+        best[hit] = thi[hit]; face[hit] = f[hit]; bi[hit] = i
+    return best, face, bi
+
+STYLE = {  # base colour, material, texture
+    'floor0': ((86, 80, 72), 2, 'tiles'), 'planks': ((104, 78, 54), 6, 'planks'), 'wall': ((150, 136, 116), 5, 'plaster'),
+    'wallb': ((120, 104, 88), 5, 'plaster'), 'cut': ((54, 46, 40), 3, 'cut'), 'stairs': ((112, 84, 58), 6, 'steps'),
+    'wood': ((96, 70, 48), 6, 'planks'), 'cloth': ((86, 92, 78), 6, 'plain'), 'metal': ((90, 94, 96), 8, 'plain'),
+    'conc': ((122, 118, 110), 2, 'plaster'), 'shelf': ((80, 60, 42), 6, 'planks'),
+}
+def shade_layer(x0r, y0r, boxes, gloom=0.82):
+    t, face, bi = box_cast(x0r, y0r, boxes)
+    valid = bi >= 0
+    h, w = t.shape
+    col = np.zeros((h, w, 3)); mt = np.zeros((h, w), np.uint8)
+    px = x0r + t; py = y0r + t; pz = t
+    n = rng.normal(0, 1, (h, w))
+    for i, b in enumerate(boxes):
+        sel = bi == i
+        if not sel.any(): continue
+        base, m, tex = STYLE[b[6]]
+        c = np.array(base, float)[None, :].repeat(sel.sum(), 0)
+        f = face[sel]; X = px[sel]; Y = py[sel]; Z = pz[sel]
+        if tex == 'planks':
+            k = np.floor(Y / 2.6) if b[6] != 'shelf' else np.floor(Z / 3)
+            c *= (0.86 + 0.22 * ((k * 0.618) % 1))[:, None]
+            c[(Y % 2.6) < 0.35] *= 0.7
+        elif tex == 'tiles':
+            chk = ((np.floor(X / 4) + np.floor(Y / 4)) % 2)[:, None]; c *= 0.92 + 0.1 * chk
+        elif tex == 'steps':
+            c[f == 2] *= 1.12
+        elif tex == 'plaster':
+            c *= (0.9 + 0.12 * np.sin(X * 0.21 + Y * 0.17) * np.sin(Z * 0.33))[:, None]
+        shade = np.where(f == 2, 1.0, np.where(f == 1, 0.84, 0.68))
+        if b[6] == 'cut': shade = np.where(f == 2, 0.95, 0.75)
+        c *= shade[:, None]
+        col[sel] = c; mt[sel] = m
+    col += n[..., None] * 5
+    col = np.clip(col * gloom, 0, 255)
+    dep = x0r + y0r + 3 * np.maximum(t, 0)
+    return (col, valid, dep, np.maximum(t, 0), np.where(valid, mt, 0).astype(np.uint8))
+
+def rect_minus(r, holes):
+    """split rectangle r=(x0,y0,x1,y1) into pieces not covered by holes (each fully inside r along one axis is enough here)"""
+    out = [r]
+    for hx0, hy0, hx1, hy1 in holes:
+        nxt = []
+        for (x0, y0, x1, y1) in out:
+            if hx1 <= x0 or hx0 >= x1 or hy1 <= y0 or hy0 >= y1: nxt.append((x0, y0, x1, y1)); continue
+            if hx0 > x0: nxt.append((x0, y0, hx0, y1))
+            if hx1 < x1: nxt.append((hx1, y0, x1, y1))
+            if hy0 > y0: nxt.append((max(x0, hx0), y0, min(x1, hx1), hy0))
+            if hy1 < y1: nxt.append((max(x0, hx0), hy1, min(x1, hx1), y1))
+        out = nxt
+    return out
+
+def add_building(name, floors, top, door, stairs=None, props=(), roof_walk=False, stub=10, wall=3):
+    o = next(ob for ob in objects if ob['name'] == name)
+    X1, Y1, Wd, Dd = o['shape'][1], o['shape'][2], o['shape'][3], o['shape'][4]
+    fx0, fy0 = X1 - Wd, Y1 - Dd
+    ix0, iy0, ix1, iy1 = fx0 + wall, fy0 + wall, X1 - wall, Y1 - wall
+    x0r, y0r = obj_grid(o)
+    da, db, dh = door  # door on the front-left face (y = Y1), from x=da to x=db, height dh
+    holes = []
+    if stairs:
+        sx0, sy0, sx1, sy1 = stairs['rect']
+        holes.append((sx0, sy0, sx1, sy1))
+    lflags = [None] * len(o['layers'])
+    for s, fz in enumerate(floors):
+        ceil = floors[s + 1] if s + 1 < len(floors) else top
+        B = []
+        # floor slabs of this storey and all below (seen through the stairwell)
+        for i in range(s + 1):
+            z = floors[i]
+            for (a, b, c, d) in (rect_minus((ix0, iy0, ix1, iy1), holes) if i > 0 else [(fx0, fy0, X1, Y1)]):
+                B.append((a, b, z - 2, c, d, z, 'floor0' if i == 0 else 'planks'))
+        # back walls (full height to this storey's ceiling)
+        B.append((fx0, fy0, 0, ix0, Y1, ceil, 'wallb'))
+        B.append((fx0, fy0, 0, X1, iy0, ceil, 'wall'))
+        # front walls: full for storeys below, low stub on this one; door gap
+        hz = fz + stub
+        for (a, b, c, d) in rect_minus((fx0, iy1, X1, Y1), [(da, iy1 - 1, db, Y1 + 1)]):
+            B.append((a, b, 0, c, d, hz, 'cut'))
+        if fz + stub > dh: B.append((da, iy1, dh, db, Y1, hz, 'cut'))
+        B.append((ix1, fy0, 0, X1, iy1, hz, 'cut'))
+        if stairs:
+            lo, hi = stairs['low'], stairs['high']; n = max(2, int(np.ceil(floors[1] / 3.0)))
+            L = hi[0] - lo[0]  # stairs run along x
+            for k in range(1, n + 1):
+                xa = lo[0] + L * (k - 1) / n
+                B.append((min(xa, hi[0]), sy0, 0, max(xa, hi[0]), sy1, floors[1] * k / n, 'stairs'))
+            if s >= 1:  # railing along the stairwell
+                B.append((min(lo[0], hi[0]), sy1, floors[1], max(lo[0], hi[0]), sy1 + 0.8, floors[1] + 9, 'wood'))
+        for p in props:
+            if p['z0'] <= fz + 1 or p['z0'] < fz:
+                if p['z0'] > ceil - 1: continue
+                B.append((p['rect'][0], p['rect'][1], p['z0'], p['rect'][2], p['rect'][3], p['z1'], p['style']))
+        o['layers'].append(shade_layer(x0r, y0r, B, gloom=0.9 if s == 0 else 0.86))
+        lflags.append({'cut': s})
+    # ----- door object: pixels of the door taken out of the facade, plus the open (swung inward) version -----
+    rgb, m, dep, zh = o['layers'][0][:4]
+    t = zh; X = x0r + t; Y = y0r + t
+    sel = m & (np.abs(Y - Y1) < 1.0) & (X >= da) & (X <= db) & (t <= dh)
+    ys, xs = np.nonzero(sel)
+    # open version: plane x = da, y from Y1-(db-da) to Y1, hinge at x=da, outer face now facing +x
+    t2 = da - x0r; Yo = y0r + t2
+    op = (Yo >= Y1 - (db - da)) & (Yo <= Y1 - 0.3) & (t2 >= 0) & (t2 <= dh)
+    xs_src = da + (Y1 - Yo)
+    ssx = np.round((xs_src - Y1) * 2 + OX - o['x0'] - 0.5).astype(int); ssy = np.round(xs_src + Y1 - 2 * t2 + OY - o['y0'] - 0.5).astype(int)
+    ok = op & (ssx >= 0) & (ssy >= 0) & (ssx < o['w']) & (ssy < o['h'])
+    ok2 = ok.copy(); ok2[ok] = sel[ssy[ok], ssx[ok]]
+    oys, oxs = np.nonzero(ok2)
+    ay0 = min(ys.min(), oys.min()); ay1 = max(ys.max(), oys.max()) + 1; ax0 = min(xs.min(), oxs.min()); ax1 = max(xs.max(), oxs.max()) + 1
+    cs = (slice(ay0, ay1), slice(ax0, ax1))
+    closed = (rgb[cs].copy(), sel[cs].copy(), dep[cs].copy(), zh[cs].copy(), np.full(sel[cs].shape, 6, np.uint8))
+    orgb = np.zeros_like(rgb); orgb[ok2] = rgb[ssy[ok2], ssx[ok2]] * 0.8
+    odep = x0r + y0r + 3 * np.maximum(t2, 0)
+    opened = (orgb[cs], ok2[cs], odep[cs], np.maximum(t2, 0)[cs], np.full(sel[cs].shape, 6, np.uint8))
+    m[sel] = False  # hole in the facade
+    door_name = 'Drzwi'
+    objects.append(dict(name=door_name, mat=6, ex=False, x0=o['x0'] + ax0, y0=o['y0'] + ay0, w=ax1 - ax0, h=ay1 - ay0,
+                        layers=[closed, opened], thick=2, shape=('box', db, Y1, db - da, 1.0, dh), blocks=False,
+                        lflags=[{'door': 'closed'}, {'door': 'open', 'hide': True}], parent=name))
+    o['lflags'] = lflags
+    o['bld'] = dict(fp=[fx0, fy0, X1, Y1], wall=wall, floors=floors, top=round(top, 1), roofWalk=roof_walk, stub=stub,
+                    door=dict(rect=[da, iy1, db, Y1], h=dh),
+                    stairs=(dict(rect=list(stairs['rect']), low=list(stairs['low']), high=list(stairs['high']), z1=floors[1]) if stairs else None),
+                    holes=[dict(rect=list(hh), storey=1) for hh in holes],
+                    props=[dict(rect=list(p['rect']), z0=p['z0'], z1=p['z1']) for p in props])
+    print(f'{name}: storeys {floors}, top {top:.1f}, door {da}-{db}, cut layers {len(floors)}')
+
+kam_o = next(ob for ob in objects if ob['name'] == 'Kamienica')
+KH = (kam_o['layers'][0][3][kam_o['layers'][0][1]]).max()
+F1 = 51
+add_building('Kamienica', [0, F1], 100, (71, 81, 31),
+             stairs=dict(rect=(44, 18.8, 112, 31), low=(112, 25), high=(44, 25)),
+             props=[dict(rect=(108, 66, 120, 78), z0=0, z1=8, style='wood'),        # table
+                    dict(rect=(34.8, 52, 39, 72), z0=0, z1=20, style='shelf'),      # cupboard
+                    dict(rect=(84, 84, 96, 101), z0=0, z1=6, style='cloth'),        # old sofa
+                    dict(rect=(40, 80, 58, 98), z0=F1, z1=F1 + 5, style='cloth'),   # bed
+                    dict(rect=(100, 60, 110, 70), z0=F1, z1=F1 + 7, style='wood'),  # crate
+                    dict(rect=(34.8, 36, 39, 50), z0=F1, z1=F1 + 18, style='shelf')])
+pav_o = next(ob for ob in objects if ob['name'] == 'Pawilon handlowy')
+PT = pav_o['shape'][5]
+add_building('Pawilon handlowy', [0], PT, (214, 233, 30), roof_walk=True,
+             props=[dict(rect=(200, 62, 242, 67), z0=0, z1=9, style='wood'),       # shop counter
+                    dict(rect=(185, 46, 189, 90), z0=0, z1=18, style='shelf'),      # shelves along the back wall
+                    dict(rect=(192, 41.5, 250, 45), z0=0, z1=18, style='shelf'),
+                    dict(rect=(246, 76, 254, 84), z0=0, z1=10, style='metal')])     # fridge
+
 # ---------------- ground ----------------
 def tile(fname, px):
     im = Image.open(MAG + fname).convert('RGB').resize((px, px), Image.LANCZOS)
@@ -316,6 +485,8 @@ for o in objects:
     df = (sxm - OX) / 2; ss = dd - zz
     meta.append(dict(name=o['name'], mat=o['mat'], ex=o['ex'], x0=o['x0'], y0=o['y0'], w=o['w'], h=o['h'], layers=L, thick=o['thick'],
                      fp=[round(v, 1) for v in fp], blocks=o['blocks'], topple=o['name'] in ('Sosna', 'Brzoza', 'Latarnia'), c=[round((ss + df) / 2, 1), round((ss - df) / 2, 1), round(zz, 1)]))
+    for k in ('lflags', 'bld', 'parent'):
+        if o.get(k) is not None: meta[-1][k] = o[k]
 AW = 2048; x = y = rowh = 0; pos = {}
 for i in sorted(range(len(tiles)), key=lambda i: -tiles[i][0].shape[0]):
     hgt, wid = tiles[i][0].shape[:2]
@@ -329,7 +500,7 @@ Image.fromarray(CA).save(OUT + 'world_color.png', optimize=True)
 Image.fromarray(GA).save(OUT + 'world_geo.png', optimize=True)
 Image.fromarray(MA, 'L').convert('RGB').save(OUT + 'world_mat.png', optimize=True)
 json.dump(dict(W=W, D=D, H=H, objects=meta, rects=[[pos[i][0], pos[i][1], tiles[i][0].shape[1], tiles[i][0].shape[0]] for i in range(len(tiles))]),
-          open(OUT + 'world.json', 'w'), separators=(',', ':'))
+          open(OUT + 'world.json', 'w'), separators=(',', ':'), default=lambda v: v.item() if hasattr(v, 'item') else str(v))
 print('objects', len(objects), 'atlas', AW, AH)
 # preview composite (painter by depth) for a quick look
 prev = out.astype(np.float32).copy(); zb = np.full((BH, BW), -1e9)
