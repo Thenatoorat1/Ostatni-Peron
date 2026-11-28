@@ -315,6 +315,8 @@ def set_parts(st):
         for k in ['jacket', 'rain', 'glove']: P_[k + s] = OVER[k + s]
     if st == 'rifle':
         P_['w_rifle'] = ('armR', [weapon('rifle', 'R')]); P_['w_shotgun'] = ('armR', [weapon('shotgun', 'R')])
+        if os.environ.get('ACC'):   # only the gun accessories (rendered later, merged by the packer)
+            return {k: ('armR', [None]) for k in ['a_sup', 'a_brake', 'a_laser', 'a_wlight', 'a_brakeS', 'a_laserS', 'a_wlightS']} | {'w_rifle': P_['w_rifle'], 'w_shotgun': P_['w_shotgun']}
     else:
         hs = st[3]
         for k in ['knife', 'blade', 'blunt', 'gren', 'molo', 'charge']: P_['w_' + k] = ('arm' + hs, [weapon(k, hs)])
@@ -386,6 +388,19 @@ for st in SETS:
     sp = set_parts(st)
     for name, (base, objs) in sp.items():
         if name.startswith('w_'): attach(objs[0], 'R' if base == 'armR' else 'L', name[2:])
+    if os.environ.get('ACC') and st == 'rifle':
+        def acc(name, gun, kind, rgb, dims, loc):
+            o = prim(name, kind, rgb, dims, 0.6); g = weapon(gun, 'R')
+            if kind == 'rod': o.data.transform(Matrix.Rotation(math.pi, 4, 'Z'))   # rod along the barrel (-Y)
+            o.parent = g; o.matrix_parent_inverse = Matrix.Identity(4); o.location = loc; return o
+        for sfx_, gun in (('', 'rifle'), ('S', 'shotgun')):
+            mz = MZ[gun]
+            if gun == 'rifle': sp['a_sup'] = ('armR', [acc('a_sup', gun, 'rod', (0.05, 0.05, 0.05), (0.03, 0.03, 0.22), (0, -mz - 0.03, 0.03))])
+            sp['a_brake' + sfx_] = ('armR', [acc('a_brake' + sfx_, gun, 'rod', (0.12, 0.12, 0.12), (0.028, 0.028, 0.07), (0, -mz, 0.03))])
+            sp['a_laser' + sfx_] = ('armR', [acc('a_laser' + sfx_, gun, 'box', (0.08, 0.08, 0.06), (0.03, 0.07, 0.035), (0, -mz * 0.55, -0.02))])
+            sp['a_wlight' + sfx_] = ('armR', [acc('a_wlight' + sfx_, gun, 'rod', (0.07, 0.07, 0.07), (0.026, 0.03, 0.09), (0, -mz * 0.68, -0.03))])
+        del sp['w_rifle'], sp['w_shotgun']
+        vl.update()
     poses = ONE_POSES if st != 'rifle' else POSES
     if PREV: poses = [p for p in PREV if p in poses]
     meta['sets'][st] = {'parts': {k: v[0] for k, v in sp.items()}, 'poses': [POSES.index(p) for p in poses], 'joints': {}}
@@ -413,5 +428,5 @@ for st in SETS:
                     scn.render.filepath = f'{OUT}/{st}_{mode}_{pose}_{d}_{name}.png'
                     bpy.ops.render.render(write_still=True)
         print('set', st, 'pose', pn, round(time.time() - t0, 1), flush=True)
-json.dump(meta, open(f'{OUT}/meta_{"_".join(SETS)}.json', 'w'))
+json.dump(meta, open(f'{OUT}/meta_{"_".join(SETS)}{"_acc" if os.environ.get("ACC") else ""}.json', 'w'))
 print('ALLDONE', flush=True)

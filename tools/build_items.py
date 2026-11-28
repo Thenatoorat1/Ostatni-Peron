@@ -1,3 +1,4 @@
+import numpy as np
 # Packs inventory icons (Do Zmroku atlases, Magnific clothing sheet, procedural grenade/charge) into one atlas.
 import json, numpy as np
 from PIL import Image, ImageDraw, ImageFilter
@@ -79,6 +80,24 @@ icons['jacket'] = (fit(CL['kurtka'], 2, 3), 2, 3)
 icons['hat'] = (fit(CL['czapka'], 2, 2), 2, 2)
 icons['gloves'] = (fit(CL['rekawice'], 2, 2), 2, 2)
 icons['raincoat'] = (fit(CL['peleryna'], 2, 2), 2, 2)
+
+# ---- new sheet (Magnific, style of the Do Zmroku icons): lights, weapon parts, magazines, key, note ----
+def _key(path):
+    a = np.asarray(Image.open(path).convert('RGB')).astype(np.float32)
+    m = np.minimum(a[..., 0], a[..., 2]) - a[..., 1]
+    al = 1 - np.clip((m - 55) / 50, 0, 1); al[a[..., 1] > 140] = 1
+    sp = np.clip(m - 10, 0, None) * (1 - al * 0.6); a[..., 0] -= sp * .55; a[..., 2] -= sp * .55
+    return np.dstack([np.clip(a, 0, 255), al * 255]).astype(np.uint8)
+_S = _key('mag4/ikony_nowe.png'); _C = _S.shape[0] // 4
+NEW = [('torch', 2, 2), ('candle', 1, 1), ('flashlight', 2, 1), ('headlamp', 2, 1),
+       ('suppressor', 2, 1), ('muzzle_brake', 1, 1), ('laser', 2, 1), ('wlight', 2, 1),
+       ('stock_light', 2, 1), ('stock_pad', 2, 1), ('mag_ext', 1, 2), ('mag_dual', 1, 2),
+       ('mag_light', 1, 2), ('sidesaddle', 2, 1), ('safe_key', 1, 1), ('code_note', 1, 1)]
+for i, (k, w, h) in enumerate(NEW):
+    cell = _S[(i // 4) * _C:(i // 4 + 1) * _C, (i % 4) * _C:(i % 4 + 1) * _C].copy()
+    al = cell[..., 3] > 128; ys, xs = np.nonzero(al)
+    cell = cell[ys.min():ys.max() + 1, xs.min():xs.max() + 1]
+    icons[k] = (fit(Image.fromarray(cell, 'RGBA'), w, h), w, h)
 
 # simple shelf packing
 order = sorted(icons, key=lambda k: -icons[k][0].height)

@@ -62,7 +62,11 @@ M = {}
 for f in os.listdir(SRC):
     if f.startswith('meta_'):
         mm = json.load(open(f'{SRC}/{f}'))
-        M.setdefault('poseNames', mm['poseNames']); M.setdefault('sets', {}).update(mm['sets'])
+        M.setdefault('poseNames', mm['poseNames'])
+        for k, v in mm['sets'].items():
+            if k in M.setdefault('sets', {}) and f.endswith('_acc.json'): M['sets'][k]['parts'].update(v['parts'])
+            elif k in M['sets']: v['parts'].update(M['sets'][k]['parts']); M['sets'][k] = v
+            else: M['sets'][k] = v
 NPOSE = len(M['poseNames']); sets = {}
 import math
 OFF = (0.0, 0.0)  # sprites are rendered with the hips on the anchor

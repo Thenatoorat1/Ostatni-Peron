@@ -287,13 +287,39 @@ def frame_of(o):
     X1, Y1, Wd, Dd = o['shape'][1], o['shape'][2], o['shape'][3], o['shape'][4]
     return X1, Y1, Wd, Dd, X1 - Wd / 2, Y1 - Dd / 2
 
-def r180_pt(o, p):
-    X1, Y1, Wd, Dd, cx, cy = frame_of(o)
-    return (round(2 * cx - p[0], 2), round(2 * cy - p[1], 2))
+# ---- the four camera views: view k is the building turned k times by R(u,v) = (-v, u) about its centre,
+#      the same turn the engine applies to the world (rp). Near faces of every view are +x (right) and +y (left).
+def rot_pt(c, p, k):
+    u, v = p[0] - c[0], p[1] - c[1]
+    for _ in range(k % 4): u, v = -v, u
+    return (round(c[0] + u, 3), round(c[1] + v, 3))
 
-def r180_rect(o, r):
-    a = r180_pt(o, (r[0], r[1])); c = r180_pt(o, (r[2], r[3]))
-    return (min(a[0], c[0]), min(a[1], c[1]), max(a[0], c[0]), max(a[1], c[1]))
+def rot_rect(c, r, k):
+    a = rot_pt(c, (r[0], r[1]), k); b = rot_pt(c, (r[2], r[3]), k)
+    return (min(a[0], b[0]), min(a[1], b[1]), max(a[0], b[0]), max(a[1], b[1]))
+
+def warp_box_img(img, Wd_t, Dd_t):
+    """make an isometric picture match the footprint proportions Wd_t x Dd_t: the part left of the front corner is
+    stretched along the left wall, the part right of it along the right wall (keeps the base lines straight)"""
+    rgb, al = img
+    ys, xs = np.nonzero(al > .5); by = ys.max(); bx = xs[ys >= by - 2].mean()
+    h = al.shape[0]; low = ys > ys.min() + (by - ys.min()) * 0.62
+    lx, rx = xs[low].min(), xs[low].max()
+    Ls, Rs = bx - lx, rx - bx
+    s = (Ls + Rs) / (2 * (Wd_t + Dd_t)); Lt, Rt = 2 * Wd_t * s, 2 * Dd_t * s
+    pad = 40; Wn = int(Lt + Rt) + 2 * pad; Hn = h + 2 * pad
+    cx_t = pad + Lt
+    yy, xx = np.mgrid[0:Hn, 0:Wn].astype(np.float32)
+    left = xx < cx_t
+    at = np.where(left, (cx_t - xx) / 2, (xx - cx_t) / 2)
+    k = np.where(left, Ls / Lt, Rs / Rt)
+    as_ = at * k
+    xs_ = np.where(left, bx - 2 * as_, bx + 2 * as_)
+    ys_ = (yy - pad) + (as_ - at)
+    out_rgb = np.dstack([ndimage.map_coordinates(rgb[..., c], [ys_, xs_], order=1, mode='constant', cval=255 if c != 1 else 0) for c in range(3)])
+    out_al = ndimage.map_coordinates(al, [ys_, xs_], order=1, mode='constant', cval=0)
+    print(f'  warp {Ls / 2 / s:.1f}x{Rs / 2 / s:.1f} -> {Wd_t:.1f}x{Dd_t:.1f}')
+    return out_rgb, out_al
 
 def pad_union(objs2):
     x0 = min(o['x0'] for o in objs2); y0 = min(o['y0'] for o in objs2)
@@ -310,12 +336,7 @@ def pad_union(objs2):
             nl.append(tuple(out))
         o['layers'] = nl; o['x0'], o['y0'], o['w'], o['h'] = x0, y0, x1 - x0, y1 - y0
 
-def door_rect(o, d, wall):
-    X1, Y1, Wd, Dd, cx, cy = frame_of(o)
-    if d['face'] == 'y': return [d['a'], Y1 - wall, d['b'], Y1]
-    return [X1 - wall, d['a'], X1, d['b']]
-
-def make_door(o, d, var, ref):
+def make_door(o, d, ref, vk):
     """cut the door pixels out of the facade and build closed/open layers; door on face y=Y1 (along x) or x=X1 (along y)"""
     X1, Y1, Wd, Dd, cx, cy = frame_of(o)
     x0r, y0r = obj_grid(o)
@@ -347,7 +368,7 @@ def make_door(o, d, var, ref):
     shape = ('box', b, Y1, b - a, 1.0, dh) if d['face'] == 'y' else ('box', X1, b, 1.0, b - a, dh)
     return dict(name='Drzwi', mat=6, ex=False, x0=o['x0'] + ax0, y0=o['y0'] + ay0, w=ax1 - ax0, h=ay1 - ay0,
                 layers=[closed, opened], thick=2, shape=shape, blocks=False,
-                lflags=[{'door': 'closed', 'v': var}, {'door': 'open', 'hide': True, 'v': var}], parent=o['bname'], dref=ref, v=var)
+                lflags=[{'door': 'closed', 'v': vk}, {'door': 'open', 'hide': True, 'v': vk}], parent=o['bname'], dref=ref, v=vk)
 
 def build_cuts(o, floors, top, doors, stairs=None, props=(), stub=10, wall=3):
     """storey cutaway layers for one view frame; doors = doors on the two near faces of this frame"""
@@ -377,13 +398,19 @@ def build_cuts(o, floors, top, doors, stairs=None, props=(), stub=10, wall=3):
         if stairs:
             sx0, sy0, sx1, sy1 = stairs['rect']
             lo, hi = stairs['low'], stairs['high']; n = max(2, int(np.ceil(floors[1] / 3.0)))
-            L = hi[0] - lo[0]
+            alongx = abs(hi[0] - lo[0]) >= abs(hi[1] - lo[1])
+            ax = 0 if alongx else 1; L = hi[ax] - lo[ax]
             for k in range(1, n + 1):
-                xa = lo[0] + L * (k - 1) / n
-                B.append((min(xa, hi[0]), sy0, 0, max(xa, hi[0]), sy1, floors[1] * k / n, 'stairs'))
+                pa = lo[ax] + L * (k - 1) / n
+                if alongx: B.append((min(pa, hi[0]), sy0, 0, max(pa, hi[0]), sy1, floors[1] * k / n, 'stairs'))
+                else: B.append((sx0, min(pa, hi[1]), 0, sx1, max(pa, hi[1]), floors[1] * k / n, 'stairs'))
             if s >= 1:  # railing on the open side of the stairwell
-                ry = sy1 if abs(sy0 - fy0) < abs(Y1 - sy1) else sy0 - 0.8
-                B.append((min(lo[0], hi[0]), ry, floors[1], max(lo[0], hi[0]), ry + 0.8, floors[1] + 9, 'wood'))
+                if alongx:
+                    ry = sy1 if abs(sy0 - fy0) < abs(Y1 - sy1) else sy0 - 0.8
+                    B.append((min(lo[0], hi[0]), ry, floors[1], max(lo[0], hi[0]), ry + 0.8, floors[1] + 9, 'wood'))
+                else:
+                    rx = sx1 if abs(sx0 - fx0) < abs(X1 - sx1) else sx0 - 0.8
+                    B.append((rx, min(lo[1], hi[1]), floors[1], rx + 0.8, max(lo[1], hi[1]), floors[1] + 9, 'wood'))
         for p in props:
             if p['z0'] <= fz + 1:
                 if p['z0'] > ceil - 1: continue
@@ -391,61 +418,60 @@ def build_cuts(o, floors, top, doors, stairs=None, props=(), stub=10, wall=3):
         out.append(shade_layer(x0r, y0r, B, gloom=0.9 if s == 0 else 0.86))
     return out
 
-def add_building2(name, back_img, front_w, floors, top, doors, stairs=None, props=(), roof_walk=False, stub=10, wall=3, flatroof=False):
-    """doors: front-frame list dict(face, a, b, h, v) — v 'F' doors are on the near faces of the front view,
-    v 'B' doors are given in the BACK frame (near faces of the 180° view)."""
+FACE_N = {'S': (0, 1), 'E': (1, 0), 'N': (0, -1), 'W': (-1, 0)}
+def add_building4(name, views, front_w, floors, top, doors, stairs=None, props=(), roof_walk=False, stub=10, wall=3, flatroof=False, warp=(False, False, False, False)):
+    """views: 4 pictures (front view first, then each further 90° turn). doors: front-frame dict(face S/E/N/W, a, b, h):
+    a..b along the wall (x for S/N walls, y for E/W walls)."""
     fo = next(ob for ob in objects if ob['name'] == name)
-    rgb, al = back_img
-    ys, xs = np.nonzero(al > .5); bw = xs.max() - xs.min()
-    X1, Y1 = fo['shape'][1], fo['shape'][2]
-    place_box_img(back_img, None, front_w / bw, name + '#B', 2, X1, Y1, flatroof=flatroof, interior=lambda Hm: list(floors))
-    bo = objects.pop()
-    print(name, 'front shape', [round(v, 1) if v else v for v in fo['shape'][1:]], 'back shape', [round(v, 1) if v else v for v in bo['shape'][1:]])
-    bo['shape'] = fo['shape']
-    pad_union([fo, bo])
-    fo['bname'] = bo['bname'] = name
-    fd = [d for d in doors if d['v'] == 'F']; bd = [d for d in doors if d['v'] == 'B']
-    st_b = None
-    if stairs:
-        st_b = dict(rect=r180_rect(fo, stairs['rect']), low=r180_pt(fo, stairs['low']), high=r180_pt(fo, stairs['high']))
-    props_b = [dict(p, rect=r180_rect(fo, p['rect'])) for p in props]
-    cf = build_cuts(fo, floors, top, fd, stairs, props, stub, wall)
-    cb = build_cuts(bo, floors, top, bd, st_b, props_b, stub, wall)
-    door_objs = []; dlist = []
+    X1, Y1, Wd, Dd = fo['shape'][1], fo['shape'][2], fo['shape'][3], fo['shape'][4]
+    fx0, fy0 = X1 - Wd, Y1 - Dd; C = (X1 - Wd / 2, Y1 - Dd / 2)
+    vobjs = [fo]
+    for k in (1, 2, 3):
+        Wk, Dk = (Dd, Wd) if k % 2 else (Wd, Dd)
+        img = views[k]
+        if warp[k]: img = warp_box_img(img, Wk, Dk)
+        rgb, al = img; ys, xs = np.nonzero(al > .5); bw = xs.max() - xs.min()
+        place_box_img(img, None, front_w / bw, f'{name}#{k}', 2, C[0] + Wk / 2, C[1] + Dk / 2, flatroof=flatroof, interior=lambda Hm: list(floors))
+        o = objects.pop(); o['shape'] = ('box', C[0] + Wk / 2, C[1] + Dk / 2, Wk, Dk, o['shape'][5]); vobjs.append(o)
+    pad_union(vobjs)
+    for o in vobjs: o['bname'] = name
+    door_objs, dlist, layers, lflags = [], [], [], []
     for i, d in enumerate(doors):
-        src = fo if d['v'] == 'F' else bo
-        do = make_door(src, d, d['v'], [name, i])
-        if d['v'] == 'B':
-            # the back view is only shown after a 180° turn; store the door at its real (front-frame) place so the
-            # two mirror steps of the engine bring the back-view sprite exactly onto the back-view facade
-            sh = do['shape']; cbk = (sh[1] - sh[3] / 2, sh[2] - sh[4] / 2); cpos = r180_pt(fo, cbk)
-            dsx = round(((cpos[0] - cpos[1]) - (cbk[0] - cbk[1])) * 2); dsy = round((cpos[0] + cpos[1]) - (cbk[0] + cbk[1]))
-            ddep = dsy
-            do['x0'] += dsx; do['y0'] += dsy
-            do['layers'] = [(l[0], l[1], l[2] + ddep, l[3], l[4]) for l in do['layers']]
-            do['shape'] = ('box', cpos[0] + sh[3] / 2, cpos[1] + sh[4] / 2, sh[3], sh[4], sh[5])
-        door_objs.append(do)
-        r = door_rect(src, d, wall)
-        if d['v'] == 'B': r = list(r180_rect(fo, r))
-        dlist.append(dict(rect=[round(v, 2) for v in r], h=d['h'], v=d['v']))
-    nF = len(fo['layers'])
-    lflags = [{'fac': 1, 'v': 'F'}, {'v': 'F'}] + [{'cut': s, 'v': 'F'} for s in range(len(cf))] + \
-             [{'fac': 1, 'v': 'B', 'hide': True}, {'v': 'B', 'hide': True}] + [{'cut': s, 'v': 'B'} for s in range(len(cb))]
-    fo['layers'] = fo['layers'] + cf + bo['layers'] + cb
-    fo['lflags'] = lflags
-    fx0, fy0 = X1 - fo['shape'][3], Y1 - fo['shape'][4]
+        if d['face'] == 'S': r = [d['a'], Y1 - wall, d['b'], Y1]; seg = ((d['a'], Y1), (d['b'], Y1))
+        elif d['face'] == 'N': r = [d['a'], fy0, d['b'], fy0 + wall]; seg = ((d['a'], fy0), (d['b'], fy0))
+        elif d['face'] == 'E': r = [X1 - wall, d['a'], X1, d['b']]; seg = ((X1, d['a']), (X1, d['b']))
+        else: r = [fx0, d['a'], fx0 + wall, d['b']]; seg = ((fx0, d['a']), (fx0, d['b']))
+        d['seg'] = seg
+        dlist.append(dict(rect=[round(v, 2) for v in r], h=d['h'], face=d['face']))
+    for k, o in enumerate(vobjs):
+        vd = []
+        for i, d in enumerate(doors):
+            n = FACE_N[d['face']]
+            for _ in range(k): n = (-n[1], n[0])
+            if n not in ((1, 0), (0, 1)): continue
+            p0 = rot_pt(C, d['seg'][0], k); p1 = rot_pt(C, d['seg'][1], k)
+            dd = dict(face='y', a=min(p0[0], p1[0]), b=max(p0[0], p1[0]), h=d['h']) if n == (0, 1) else dict(face='x', a=min(p0[1], p1[1]), b=max(p0[1], p1[1]), h=d['h'])
+            vd.append(dd); door_objs.append(make_door(o, dd, [name, i], k))
+        st = dict(rect=rot_rect(C, stairs['rect'], k), low=rot_pt(C, stairs['low'], k), high=rot_pt(C, stairs['high'], k)) if stairs else None
+        pr = [dict(p, rect=rot_rect(C, p['rect'], k)) for p in props]
+        cuts = build_cuts(o, floors, top, vd, st, pr, stub, wall)
+        layers += list(o['layers']) + cuts
+        lflags += [{'fac': 1, 'v': k}, {'v': k}] + [{'cut': s, 'v': k} for s in range(len(cuts))]
+        if k: lflags[-len(cuts) - 2]['hide'] = True; lflags[-len(cuts) - 1]['hide'] = True
+    fo['layers'] = layers; fo['lflags'] = lflags; fo['views'] = 4
     fo['bld'] = dict(fp=[fx0, fy0, X1, Y1], wall=wall, floors=floors, top=round(top, 1), roofWalk=roof_walk, stub=stub, doors=dlist,
                      stairs=(dict(rect=list(stairs['rect']), low=list(stairs['low']), high=list(stairs['high']), z1=floors[1]) if stairs else None),
                      holes=([dict(rect=list(stairs['rect']), storey=1)] if stairs else []),
                      props=[dict(rect=list(p['rect']), z0=p['z0'], z1=p['z1']) for p in props])
     objects.extend(door_objs)
-    print(f'{name}: storeys {floors}, top {top:.1f}, doors {dlist}')
+    print(f'{name}: 4 views, storeys {floors}, top {top:.1f}, doors {dlist}')
 
 kam_o = next(ob for ob in objects if ob['name'] == 'Kamienica')
 F1 = 51
-add_building2('Kamienica', key_magenta(MAG + 'kamienica_tyl.png'), 380, [0, F1], 100,
-              [dict(face='y', a=71, b=81, h=31, v='F'), dict(face='y', a=102.5, b=115.5, h=33, v='B')],
-              stairs=dict(rect=(64, 18.8, 124, 31), low=(124, 25), high=(64, 25)),
+km = lambda f: key_magenta(f)
+add_building4('Kamienica', [None, km('mag4/kam_v1b.png'), km(MAG + 'kamienica_tyl.png'), km('mag4/kam_v3.png')], 380, [0, F1], 100,
+              [dict(face='S', a=71, b=81, h=31), dict(face='N', a=44.3, b=57.3, h=33)],
+              stairs=dict(rect=(64, 18.8, 124, 31), low=(124, 25), high=(64, 25)), warp=(False, True, False, True),
               props=[dict(rect=(108, 66, 120, 78), z0=0, z1=8, style='wood'),        # table
                      dict(rect=(34.8, 52, 39, 72), z0=0, z1=20, style='shelf'),      # cupboard
                      dict(rect=(84, 84, 96, 101), z0=0, z1=6, style='cloth'),        # old sofa
@@ -454,14 +480,15 @@ add_building2('Kamienica', key_magenta(MAG + 'kamienica_tyl.png'), 380, [0, F1],
                      dict(rect=(34.8, 36, 39, 50), z0=F1, z1=F1 + 18, style='shelf')])
 pav_o = next(ob for ob in objects if ob['name'] == 'Pawilon handlowy')
 PT = pav_o['shape'][5]
-add_building2('Pawilon handlowy', key_magenta(MAG + 'pawilon_tyl.png'), 280, [0], PT,
-              [dict(face='y', a=214, b=233, h=30, v='F'), dict(face='x', a=52.5, b=65.5, h=29, v='B')], roof_walk=True, flatroof=True,
+add_building4('Pawilon handlowy', [None, km('mag4/pav_v1c.png'), km(MAG + 'pawilon_tyl.png'), km('mag4/pav_v3c.png')], 280, [0], PT,
+              [dict(face='S', a=214, b=233, h=30), dict(face='W', a=71, b=84, h=29)], roof_walk=True, flatroof=True, warp=(False, True, False, True),
               props=[dict(rect=(200, 62, 242, 67), z0=0, z1=9, style='wood'),       # shop counter
                      dict(rect=(185, 46, 189, 66), z0=0, z1=18, style='shelf'),     # shelves along the west wall (gap at the back door)
                      dict(rect=(192, 41.5, 250, 45), z0=0, z1=18, style='shelf'),
                      dict(rect=(246, 76, 254, 84), z0=0, z1=10, style='metal')])     # fridge
 
-# ---------------- shop sign "STONKA": lightbox on the fascia, perpendicular to the pavilion front ----------------
+# ---------------- shop sign "STONKA": lightbox on the fascia, perpendicular to the pavilion front; one sprite per view,
+#                  the lettering always reads left to right ----------------
 from PIL import ImageFont, ImageDraw as _ID
 def sign_texture(lit):
     TW, TH = 480, 240
@@ -479,14 +506,17 @@ def sign_texture(lit):
     d.line((40, 200, TW - 40, 200), fill=fg, width=8)
     return np.asarray(im).astype(float)
 
-def make_sign():
+def make_sign(k):
     pv = next(ob for ob in objects if ob['name'] == 'Pawilon handlowy')
-    Y1 = pv['shape'][2]
+    X1, Y1, Wd, Dd = pv['shape'][1], pv['shape'][2], pv['shape'][3], pv['shape'][4]
+    C = (X1 - Wd / 2, Y1 - Dd / 2)
     PX, PZ0, PZ1, L = 190.0, 22.5, 34.0, 22.0
-    # two brackets bolted to the fascia band above the shop window, panel hangs off them
-    boxes = [(PX - 0.6, Y1, PZ1 - 1.6, PX + 0.6, Y1 + 2.4, PZ1 - 0.4, 'metal'),
-             (PX - 1.0, Y1 + 1.6, PZ0, PX + 1.0, Y1 + 1.6 + L, PZ1, 'panel'),
-             (PX - 0.6, Y1, PZ0 + 0.4, PX + 0.6, Y1 + 2.4, PZ0 + 1.6, 'metal')]
+    fb = [(PX - 0.6, Y1, PZ1 - 1.6, PX + 0.6, Y1 + 2.4, PZ1 - 0.4, 'metal'),
+          (PX - 1.0, Y1 + 1.6, PZ0, PX + 1.0, Y1 + 1.6 + L, PZ1, 'panel'),
+          (PX - 0.6, Y1, PZ0 + 0.4, PX + 0.6, Y1 + 2.4, PZ0 + 1.6, 'metal')]
+    boxes = []
+    for b in fb:
+        r = rot_rect(C, (b[0], b[1], b[3], b[4]), k); boxes.append((r[0], r[1], b[2], r[2], r[3], b[5], b[6]))
     xs, ys = [], []
     for b in boxes:
         for x in (b[0], b[3]):
@@ -498,24 +528,43 @@ def make_sign():
     t, face, bi = box_cast(x0r, y0r, [b[:6] + ('wood',) for b in boxes])
     valid = bi >= 0
     X = x0r + t; Y = y0r + t; Z = t
+    P = boxes[1]; alongx = (P[3] - P[0]) > (P[4] - P[1])
     layers = []
     for lit in (True, False):
         tex = sign_texture(lit); th, tw = tex.shape[:2]
         col = np.zeros(t.shape + (3,))
         pan = valid & (bi == 1)
-        u = np.clip(((Y1 + 1.6 + L) - Y) / L, 0, .999); v = np.clip((PZ1 - Z) / (PZ1 - PZ0), 0, .999)
-        f0 = pan & (face == 0)
+        v = np.clip((PZ1 - Z) / (PZ1 - PZ0), 0, .999)
+        big = 1 if alongx else 0                       # the long face of the panel that faces the camera
+        u = np.clip(((X - P[0]) / (P[3] - P[0])) if alongx else ((P[4] - Y) / (P[4] - P[1])), 0, .999)  # grows to the right on screen
+        f0 = pan & (face == big)
         col[f0] = tex[(v[f0] * th).astype(int), (u[f0] * tw).astype(int)]
-        col[pan & (face == 1)] = (150, 255, 110) if lit else (40, 90, 46)
+        col[pan & (face == 1 - big)] = (150, 255, 110) if lit else (40, 90, 46)
         col[pan & (face == 2)] = (16, 70, 36)
         met = valid & (bi != 1)
         col[met] = np.array((96, 98, 100)) * np.where(face[met] == 2, 1.0, .75)[:, None]
         mt = np.where(pan, 7, 8).astype(np.uint8)
         layers.append((col, valid.copy(), x0r + y0r + 3 * np.maximum(t, 0), np.maximum(t, 0), np.where(valid, mt, 0).astype(np.uint8)))
-    o.update(layers=layers, thick=2, shape=('box', PX + 1, Y1 + 1.6 + L, 2, L + 1.6, PZ1), blocks=False, v='F',
-             lflags=[{'sign': 'lit', 'v': 'F'}, {'sign': 'unlit', 'hide': True, 'ghost': True, 'v': 'F'}], parent='Pawilon handlowy', light=[PX + 1.2, Y1 + 1.6 + L / 2, (PZ0 + PZ1) / 2])
+    sh = (P[3] + 0.5, P[4] + 0.5, P[3] - P[0] + 1, P[4] - P[1] + 1)
+    o.update(layers=layers, thick=2, shape=('box', sh[0], sh[1], sh[2], sh[3], PZ1), blocks=False, v=k,
+             lflags=[{'sign': 'lit', 'v': k}, {'sign': 'unlit', 'hide': True, 'ghost': True, 'v': k}], parent='Pawilon handlowy', light=[PX + 1.2, Y1 + 1.6 + L / 2, (PZ0 + PZ1) / 2])
+    if k: o['lflags'][0]['hide'] = True; o['lflags'][0]['ghost'] = True
     objects.append(o)
-make_sign()
+for _k in (0, 3): make_sign(_k)   # the shop front (south wall) faces the camera only in these two views
+
+# ---------------- safes: one in the house (code lock), one in the shop (key); closed and open pictures ----------------
+sf = key_magenta('mag4/sejf.png')
+sb = comps(sf[1], 2); sb.sort(key=lambda b: b[2])
+def make_safe(name, X1, Y1, parent):
+    place_box_img(sf, sb[0], 22 / w_of(sb[0]), name, 8, X1, Y1); a = objects.pop()
+    place_box_img(sf, sb[1], 22 / w_of(sb[0]), name, 8, X1, Y1); b = objects.pop()
+    pad_union([a, b])
+    a['layers'] = [a['layers'][0], b['layers'][0]]
+    a['lflags'] = [{'safe': 'closed'}, {'safe': 'open', 'hide': True, 'ghost': True}]
+    a['parent'] = parent
+    objects.append(a)
+make_safe('Sejf', 120, 44, 'Kamienica')
+make_safe('Sejf sklepowy', 200, 56, 'Pawilon handlowy')
 
 # ---------------- bins: shop dumpster behind the pavilion, household wheelie bin by the back door of the house ----------------
 kos = key_magenta(MAG + 'kosze.png')
@@ -606,7 +655,7 @@ def classify(name, rgb, zh, mask):
     elif name == 'Worki z piaskiem': mt[:] = 11
     elif name == 'Bariera betonowa': mt[:] = 2
     elif name == 'Skrzynie': mt[:] = 6
-    elif name in ('Kontener na śmieci', 'Kosz na śmieci'): mt[:] = 8
+    elif name in ('Kontener na śmieci', 'Kosz na śmieci', 'Sejf', 'Sejf sklepowy'): mt[:] = 8
     elif name in ('Trawa', 'Krzak'): mt[:] = 10
     elif name == 'Gruz': mt[:] = 2; mt[brickish] = 3
     elif name in ('Sosna', 'Brzoza'):
