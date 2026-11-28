@@ -161,11 +161,13 @@ def prone_arms(reach=0.0, recoil=False):
     aim('Head', (0, 0.55, 0.83))
 def prone_legs(ph=0.0):
     for side, sg in (('L', 1), ('R', -1)):
-        if ph * sg > 0.5:
-            aim('UpperLeg.' + side, (sg * 0.55, 0.15, -0.82)); aim('LowerLeg.' + side, (sg * 0.15, 0.4, -0.9))
+        # body lies face down: -y (front) points at the ground, so toes go to -y (dug into the ground) and out to the side
+        if ph * sg > 0.5:   # knee drawn up sideways, inner side of the foot on the ground
+            aim('UpperLeg.' + side, (sg * 0.62, -0.05, -0.78)); aim('LowerLeg.' + side, (sg * 0.12, -0.02, -0.99))
+            aim('Foot.' + side, (sg * 0.85, -0.35, -0.4))
         else:
-            aim('UpperLeg.' + side, (sg * 0.15, 0.05, -0.99)); aim('LowerLeg.' + side, (sg * 0.05, 0.1, -0.99))
-        aim('Foot.' + side, (0, 0.95, -0.3))
+            aim('UpperLeg.' + side, (sg * 0.15, 0.0, -0.99)); aim('LowerLeg.' + side, (sg * 0.06, -0.02, -0.998))
+            aim('Foot.' + side, (sg * 0.45, -0.75, -0.48))
 def dangle_arms():
     aim('UpperArm.R', (-0.25, -0.2, -0.95)); aim('LowerArm.R', (-0.05, -0.6, -0.8))
     aim('UpperArm.L', (0.25, -0.1, -0.96)); aim('LowerArm.L', (0.1, -0.3, -0.95))
