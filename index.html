@@ -72,10 +72,31 @@ body{background:var(--bg);color:var(--text);font-family:var(--f-ui);overflow:hid
 #inv .q{position:absolute;right:3px;bottom:1px;font-family:var(--f-term);font-size:17px;color:#fff;text-shadow:0 0 3px #000,0 0 2px #000}
 .ghost{position:fixed;z-index:50;pointer-events:none;border:2px solid #888;background:rgba(255,255,255,.06)}
 .ghost.ok{border-color:#7fe06a}.ghost.bad{border-color:#ff5a43}
-#slots{display:grid;grid-template-columns:repeat(5,64px);gap:6px}
-#slots .slot{position:relative;width:64px;height:64px;background:#191814;border:1px solid #4a463e;border-radius:4px;overflow:hidden}
-#slots .slot.ok{border-color:#7fe06a}#slots .slot.bad{border-color:#ff5a43}
-#slots .sl{position:absolute;left:3px;top:1px;font-size:11px;color:var(--muted);letter-spacing:.05em}
+#inv .ph{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
+#bagKg,#heroHp{font-family:var(--f-term);font-size:17px;color:var(--muted)}
+#inv .bagb{display:flex;gap:6px}#inv .bagb button{flex:1;background:#2c2a24;border:1px solid #4a463e;color:var(--text);border-radius:4px;padding:5px 8px;font:inherit;font-size:15px;cursor:pointer}
+#inv .bagb button:hover{border-color:var(--amber)}#inv .bagb button:disabled{opacity:.4;cursor:default}
+#inv .hpbar{height:6px;background:#14130f;border:1px solid #4a463e;border-radius:2px;overflow:hidden}#inv .hpbar i{display:block;height:100%;background:#c8402e}
+#inv .hero{min-width:min(420px,100%)}
+#slots{display:grid;grid-template-columns:auto 1fr auto;gap:8px;align-items:stretch}
+#slots .col{display:flex;flex-direction:column;gap:6px}
+#slots .fig{display:flex;align-items:center;justify-content:center;background:radial-gradient(ellipse at 50% 70%,rgba(232,166,58,.13),transparent 65%);min-width:140px}
+#heroCv{height:240px;width:auto;image-rendering:pixelated;max-width:100%;filter:drop-shadow(0 6px 8px rgba(0,0,0,.6))}
+#slots .slot.gun{cursor:pointer}#slots .slot.gun:hover,#slots .slot.sel{border-color:var(--amber)}
+#slots .slot .mods{position:absolute;right:3px;bottom:1px;font-size:11px;color:var(--amber)}
+#invStats .stg{grid-template-columns:repeat(4,minmax(0,1fr))!important}
+#invStats .st{background:#191814;border:1px solid #4a463e;border-radius:4px;padding:3px 6px;text-align:center}
+#invStats .st span{font-size:12px;letter-spacing:.06em;color:var(--muted)}
+#wmPop{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:8;background:linear-gradient(#3a372f,#24221d);border:2px solid var(--amber);border-radius:8px;padding:10px 12px;min-width:300px;box-shadow:0 8px 30px rgba(0,0,0,.7)}
+#wmPop .ph button{background:none;border:0;color:var(--text);font-size:18px;cursor:pointer}
+#wmPop .wmg{display:flex;gap:12px;align-items:center}
+#wmPop .wmIcon{position:relative;width:150px;height:80px;background:#191814;border:1px solid #4a463e;border-radius:4px;overflow:hidden}
+#wmSlots{display:grid;grid-template-columns:repeat(2,64px);gap:6px}
+#wmInfo{margin:8px 0 0;font-size:14px;color:var(--muted);max-width:340px}
+#slots{display:grid;grid-template-columns:auto 1fr auto;gap:8px}
+#slots .slot,#wmSlots .slot{position:relative;width:64px;height:64px;background:#191814;border:1px solid #4a463e;border-radius:4px;overflow:hidden}
+#inv .slot.ok{border-color:#7fe06a!important}#inv .slot.bad{border-color:#ff5a43!important}
+#inv .slot .sl{position:absolute;left:3px;top:1px;font-size:11px;color:var(--muted);letter-spacing:.05em}
 #itemInfo{max-width:min(980px,100%);min-height:64px;font-size:15px;color:var(--text);background:#191814;border:1px solid #4a463e;border-radius:6px;padding:8px 12px;box-sizing:border-box;width:100%}
 #itemInfo b{color:var(--amber);font-size:17px}#itemInfo .cat{margin-left:8px;color:var(--muted)}#itemInfo p{margin:3px 0}#itemInfo .eff{color:var(--green)}#itemInfo .hint{color:var(--muted)}
 #invStats{font-size:15px;color:var(--muted)}#invStats b{color:var(--text)}
@@ -108,12 +129,17 @@ button kbd{font-family:var(--f-term);font-size:17px;color:var(--amber);margin-ri
     <div id="dead" hidden><div>NIE ŻYJESZ · R</div></div>
     <section id="inv" hidden aria-label="Ekwipunek">
       <div class="wrap">
-        <div class="pane"><h3>PLECAK</h3><div class="grid" id="gPlayer"></div><div id="slots"></div><div id="invStats"></div></div>
+        <div class="pane bag"><div class="ph"><h3>PLECAK</h3><span id="bagKg"></span></div><div class="grid" id="gPlayer"></div>
+          <div class="bagb"><button id="bUse">Użyj</button><button id="bSplit">Podziel</button><button id="bTrash" title="Wyrzuć">✕ Wyrzuć</button></div></div>
+        <div class="pane hero"><div class="ph"><h3>TY</h3><span id="heroHp"></span></div><div class="hpbar"><i id="heroHpB"></i></div>
+          <div id="slots"><div class="col" id="slotsL"></div><div class="fig"><canvas id="heroCv" width="128" height="128"></canvas></div><div class="col" id="slotsR"></div></div>
+          <div id="invStats"></div></div>
         <div class="pane" id="paneCont"><h3 id="contName">POJEMNIK</h3><div class="grid" id="gCont"></div><button id="bTakeAll">Weź wszystko</button></div>
       </div>
+      <div id="wmPop" hidden><div class="ph"><h3 id="wmTitle">BROŃ</h3><button id="wmClose">✕</button></div><div class="wmg"><div class="wmIcon" id="wmIcon"></div><div id="wmSlots"></div></div><p id="wmInfo"></p></div>
       <div id="itemInfo"></div>
       <div class="bar2"><button id="bInvClose"><kbd>I</kbd>Zamknij</button></div>
-      <p style="margin:0;color:var(--muted);font-size:15px;text-align:center">Przeciągnij przedmiot myszą. R obraca w trakcie przeciągania. Dwuklik albo prawy klik: użyj, załóż albo przenieś.</p>
+      <p style="margin:0;color:var(--muted);font-size:15px;text-align:center">Przeciągnij przedmiot myszą (R obraca). Dwuklik: użyj, załóż albo przenieś. Kliknij broń, żeby otworzyć jej ulepszenia.</p>
     </section>
     <div id="loading">WCZYTUJĘ GRAFIKĘ…</div>
   </div>
@@ -883,6 +909,7 @@ const IT={
   raincoat:{n:'Peleryna przeciwdeszczowa',c:'Ubranie',d:'Prawie nie przemakasz.',cloth:{slot:'outer',ins:.06,rain:.85}},
 };
 const SLOTS=[['head','Głowa'],['body','Tułów'],['outer','Wierzch'],['hands','Ręce'],['melee','Broń biała']];
+const SLOT_L=['gun:rifle','gun:shotgun','melee','light'],SLOT_R=['head','body','outer','hands'];
 let ICONS={cell:48,rects:{}},iconImg=null;
 async function loadItems(){const j=await fetch(ASSET+'items.json').then(r=>r.json());ICONS=j;for(const id in IT){const r=j.rects[id];if(r){IT[id].w=r[4];IT[id].h=r[5];}else{IT[id].w=IT[id].h=1;}}}
 const mkGrid=(w,h,name)=>({w,h,items:[],name});
@@ -1900,7 +1927,7 @@ function drawFx(){
   if(mx>=0){const hov=fPick[my*BW+mx]<=-2;ctx.fillStyle=hov?'#ff5a43':'#ffffff';ctx.fillRect(mx-6,my,4,1);ctx.fillRect(mx+3,my,4,1);ctx.fillRect(mx,my-6,1,4);ctx.fillRect(mx,my+3,1,4);}
 }
 
-window.__op={get TIME(){return TIME},get HOLE(){return HOLE},get SECRET(){return SECRET},installMod:(...a)=>installMod(...a),toggleLight:()=>toggleLight(),trySafe:c=>trySafe(c),startReload:w=>startReload(w),setW,addItem,get IT(){return IT},sever,gainXP,loadKg,get keys(){return keys},get blds(){return blds},setDoor,nearDoor,get ROT(){return ROT},get objs(){return objs},get wx(){return wx},setWeather,get conts(){return conts},get lights(){return lights},interact,get uiOpen(){return uiOpen},closeUI,openUI,get viewB(){return viewB},get chars(){return chars},get nb(){return nb},get gb(){return gBurn.length},get amt(){return fireAmt},moloBurst,explode,setStance,rotateView,get player(){return player}};
+window.__op={get TIME(){return TIME},get HOLE(){return HOLE},get SECRET(){return SECRET},installMod:(...a)=>installMod(...a),toggleLight:()=>toggleLight(),trySafe:c=>trySafe(c),startReload:w=>startReload(w),get pend(){return pend},get drag(){return drag},dropTarget:()=>dropTarget(),setW,addItem,get IT(){return IT},sever,gainXP,loadKg,get keys(){return keys},get blds(){return blds},setDoor,nearDoor,get ROT(){return ROT},get objs(){return objs},get wx(){return wx},setWeather,get conts(){return conts},get lights(){return lights},interact,get uiOpen(){return uiOpen},closeUI,openUI,get viewB(){return viewB},get chars(){return chars},get nb(){return nb},get gb(){return gBurn.length},get amt(){return fireAmt},moloBurst,explode,setStance,rotateView,get player(){return player}};
 
 // ================= HUD =================
 const logEl=document.getElementById('log'),tip=document.getElementById('tip'),stats=document.getElementById('stats');
@@ -1928,27 +1955,64 @@ function renderGrid(el,g){
     box.addEventListener('dblclick',()=>quickAct(g,it));
     box.addEventListener('contextmenu',e=>{e.preventDefault();quickAct(g,it);});
     box.addEventListener('pointerenter',()=>showInfo(it.id,it.q));
+    if(g===player.inv)box.addEventListener('click',()=>{selIt=it;if(GUN[it.id])openWm(it.id);else updBagButtons();});
     el.appendChild(box);
   }
 }
 function slotOk(id,slot){const d=IT[id];if(slot.startsWith('wm:')){const [,w,sl]=slot.split(':'),m=MODS[id];return !!(m&&m.slot===sl&&m.w.includes(w));}return !!((d.cloth&&d.cloth.slot===slot)||(d.melee&&slot==='melee')||(d.light&&slot==='light'));}
+function allSlots(){return document.querySelectorAll('#inv [data-slot]');}
+function slotEl(k,label,id,sc){const s=document.createElement('div');s.className='slot';s.dataset.slot=k;const l=document.createElement('span');l.className='sl';l.textContent=label;s.appendChild(l);
+  if(id){const ic=document.createElement('div');ic.className='ic';iconStyle(ic,id);const r=ICONS.rects[id],z=Math.min(1,(sc||52)/Math.max(r[2],r[3])*ICONS.cell/CELLPX);ic.style.transform=`translate(-50%,-50%) scale(${z})`;s.appendChild(ic);s.addEventListener('pointerenter',()=>showInfo(id,1));}
+  return s;}
+let wmOpen=null;
 function renderSlots(){
-  slotsEl.innerHTML='';
-  for(const [k,label] of SLOTS){const s=document.createElement('div');s.className='slot';s.dataset.slot=k;const e=player.eq[k];
-    const l=document.createElement('span');l.className='sl';l.textContent=label;s.appendChild(l);
-    if(e){const ic=document.createElement('div');ic.className='ic';iconStyle(ic,e.id);const r=ICONS.rects[e.id],sc=Math.min(1,52/Math.max(r[2],r[3])*ICONS.cell/CELLPX);ic.style.transform=`translate(-50%,-50%) scale(${sc})`;s.appendChild(ic);
-      s.addEventListener('dblclick',()=>{if(unequip(k))refreshUI();else log('Brak miejsca w plecaku.');});s.addEventListener('pointerenter',()=>showInfo(e.id,1));
-      s.addEventListener('pointerdown',ev=>{if(ev.button!==0)return;ev.preventDefault();drag={slot:k,it:{id:e.id,q:1,r:0},ghost:mkGhost(e.id,0),gx:.5,gy:.5};moveGhost(ev);});}
-    slotsEl.appendChild(s);}
-  for(const w of ['rifle','shotgun']){if(!countItem(player.inv,w))continue;
-    for(const [sl,label] of MOD_SLOTS){if(w==='shotgun'&&sl!=='muzzle'&&sl!=='rail'&&sl!=='stock'&&sl!=='mag')continue;const s=document.createElement('div');s.className='slot wm';s.dataset.slot=`wm:${w}:${sl}`;const id=player.wm[w][sl];
-      const l=document.createElement('span');l.className='sl';l.textContent=`${GUN[w].n} · ${label}`;s.appendChild(l);
-      if(id){const ic=document.createElement('div');ic.className='ic';iconStyle(ic,id);const r=ICONS.rects[id],sc=Math.min(1,40/Math.max(r[2],r[3])*ICONS.cell/CELLPX);ic.style.transform=`translate(-50%,-50%) scale(${sc})`;s.appendChild(ic);
-        s.addEventListener('dblclick',()=>{if(removeMod(w,sl))refreshUI();else log('Brak miejsca w plecaku.');});s.addEventListener('pointerenter',()=>showInfo(id,1));}
-      slotsEl.appendChild(s);}}
+  const L=document.getElementById('slotsL'),R=document.getElementById('slotsR');L.innerHTML='';R.innerHTML='';
+  const lab=Object.fromEntries(SLOTS);
+  for(const k of SLOT_L.concat(SLOT_R)){let s;
+    if(k.startsWith('gun:')){const w=k.slice(4),has=countItem(player.inv,w);s=slotEl(k,GUN[w].n,has?w:null,56);s.classList.add('gun');if(wmOpen===w)s.classList.add('sel');
+      if(has){const n=Object.keys(player.wm[w]).length;if(n){const m=document.createElement('span');m.className='mods';m.textContent=`+${n}`;s.appendChild(m);}s.addEventListener('click',()=>openWm(w));}
+      else s.title='Nie masz tej broni';}
+    else{const e=player.eq[k];s=slotEl(k,lab[k],e&&e.id);
+      if(e){s.addEventListener('dblclick',()=>{if(unequip(k))refreshUI();else log('Brak miejsca w plecaku.');});
+        s.addEventListener('pointerdown',ev=>{if(ev.button!==0)return;ev.preventDefault();drag={slot:k,it:{id:e.id,q:1,r:0},ghost:mkGhost(e.id,0),gx:.5,gy:.5};moveGhost(ev);});}}
+    (SLOT_L.includes(k)?L:R).appendChild(s);}
+  renderWm();drawHero();
+  const kg=loadKg(player),cap=capKg(player);document.getElementById('bagKg').textContent=`${kg.toFixed(1)} / ${cap} kg`;
+  let hp=0,h0=0;player.T.defs.forEach((d,i)=>{h0+=d.hp0;if(player.att[i])hp+=Math.max(0,player.hp[i]);});document.getElementById('heroHp').textContent=`zdrowie ${Math.round(hp/h0*100)}%`;document.getElementById('heroHpB').style.width=(hp/h0*100)+'%';
   const st=document.getElementById('invStats');
   st.innerHTML=statsHTML()+`<div>Temperatura ciała <b>${player.tb.toFixed(1)}°C</b> · wilgoć <b>${Math.round(player.wet)}%</b> · izolacja <b>${Math.round(insulation(player)*100)}%</b></div>`;
+  updBagButtons();
 }
+// weapon upgrades window: opens after picking a weapon
+function openWm(w){if(!countItem(player.inv,w))return;wmOpen=wmOpen===w?null:w;refreshUI();}
+function renderWm(){const pop=document.getElementById('wmPop');if(!wmOpen||!countItem(player.inv,wmOpen)){pop.hidden=true;wmOpen=null;return;}pop.hidden=false;const w=wmOpen;
+  document.getElementById('wmTitle').textContent=`${GUN[w].n.toUpperCase()} · ULEPSZENIA`;
+  const ic=document.getElementById('wmIcon');ic.innerHTML='';const i2=document.createElement('div');i2.className='ic';iconStyle(i2,w);const r=ICONS.rects[w],z=Math.min(140/r[2],70/r[3])*ICONS.cell/CELLPX;i2.style.transform=`translate(-50%,-50%) scale(${Math.min(1.6,z)})`;ic.appendChild(i2);
+  const box=document.getElementById('wmSlots');box.innerHTML='';
+  for(const [sl,label] of MOD_SLOTS){const id=player.wm[w][sl],s=slotEl(`wm:${w}:${sl}`,label,id,44);
+    if(id)s.addEventListener('dblclick',()=>{if(removeMod(w,sl))refreshUI();else log('Brak miejsca w plecaku.');});box.appendChild(s);}
+  const fit=Object.keys(MODS).filter(id=>MODS[id].w.includes(w)&&countItem(player.inv,id)).map(id=>IT[id].n.toLowerCase());
+  document.getElementById('wmInfo').innerHTML=`Magazynek: <b>${player.mag[w]}/${capOf(w)}</b> · amunicja w plecaku: <b>${countItem(player.inv,GUN[w].ammo)}</b><br>${fit.length?'Pasuje z plecaka: '+fit.join(', ')+'. Przeciągnij na slot albo kliknij dwa razy.':'Nie masz w plecaku nic, co pasuje do tej broni.'} Dwuklik na slocie zdejmuje część.`;}
+document.getElementById('wmClose').addEventListener('click',()=>{wmOpen=null;refreshUI();});
+// figure in the middle: the player's own sprite with what is worn and held
+const heroCv=document.getElementById('heroCv'),heroCtx=heroCv.getContext('2d');
+function drawHero(){
+  const ch=player,sv=[ch.dir,ch.pose,ch.recoil];ch.dir=7;ch.pose=ch.alive?ch.T.P.idle:ch.pose;ch.recoil=0;if(ch.alive)playerLook(ch);
+  const L=charIms(ch);ch.dir=sv[0];ch.pose=sv[1];ch.recoil=sv[2];
+  const W=128,H=128,img=heroCtx.createImageData(W,H),u32=new Uint32Array(img.data.buffer),zb=new Float32Array(W*H).fill(-1e9),ax=64,ay=112;
+  for(const [im,pi,bz] of L)for(let v=0;v<im.h;v++)for(let u=0;u<im.w;u++){const k=v*im.w+u,c=im.col[k];if(!c)continue;const x=ax+im.ox+u,y=ay+im.oy+v;if(x<0||y<0||x>=W||y>=H)continue;const q=y*W+x,d=im.dep[k]+(bz||0);if(d>zb[q]){zb[q]=d;u32[q]=c;}}
+  let x0=W,y0=H,x1=0,y1=0;for(let q=0;q<W*H;q++)if(u32[q]){const x=q%W,y=(q/W)|0;if(x<x0)x0=x;if(x>x1)x1=x;if(y<y0)y0=y;if(y>y1)y1=y;}
+  if(x1<x0)return;const p=3;x0=Math.max(0,x0-p);y0=Math.max(0,y0-p);x1=Math.min(W-1,x1+p);y1=Math.min(H-1,y1+p);
+  heroCv.width=x1-x0+1;heroCv.height=y1-y0+1;heroCtx.putImageData(img,-x0,-y0);
+}
+// backpack buttons work on the selected item
+let selIt=null;
+function updBagButtons(){const ok=selIt&&player.inv.items.includes(selIt);if(!ok)selIt=null;document.getElementById('bUse').disabled=!ok;document.getElementById('bSplit').disabled=!(ok&&selIt.q>1);document.getElementById('bTrash').disabled=!ok;
+  for(const b of gPl.querySelectorAll('.itm'))b.style.outline=b._it===selIt?'2px solid var(--amber)':'';}
+document.getElementById('bUse').addEventListener('click',()=>{if(selIt)quickAct(player.inv,selIt);});
+document.getElementById('bSplit').addEventListener('click',()=>{if(!selIt||selIt.q<2)return;const h=selIt.q>>1,g=player.inv;
+  for(let y=0;y<g.h;y++)for(let x=0;x<g.w;x++)if(fits(g,selIt.id,x,y,0)){selIt.q-=h;g.items.push({id:selIt.id,q:h,x,y,r:0});refreshUI();return;}log('Nie ma miejsca, żeby podzielić.');});
+document.getElementById('bTrash').addEventListener('click',()=>{if(!selIt)return;const g=player.inv;g.items.splice(g.items.indexOf(selIt),1);log(`Wyrzucasz: ${IT[selIt.id].n}.`);selIt=null;refreshUI();});
 function refreshUI(){if(!uiOpen)return;renderGrid(gPl,player.inv);if(uiCont){renderGrid(gCo,uiCont.g);}renderSlots();updAmmoUI();}
 function showInfo(id,q){const d=IT[id];let u='';if(d.use){const p=[];if(d.use.heal)p.push(`leczy ${d.use.heal}`);if(d.use.healAll)p.push(`leczy całe ciało ${d.use.healAll}`);if(d.use.food)p.push('grzeje od środka');if(d.use.warm)p.push('rozgrzewa');if(d.use.drunk)p.push('upaja');u=p.join(', ');}
   if(d.cloth)u=`izolacja ${Math.round(d.cloth.ins*100)}%${d.cloth.rain?', chroni przed deszczem':''}${d.cloth.steady?', stabilne ręce':''}`;
@@ -1957,6 +2021,7 @@ function showInfo(id,q){const d=IT[id];let u='';if(d.use){const p=[];if(d.use.he
   if(MODS[id])u='pasuje do: '+MODS[id].w.map(w=>GUN[w].n.toLowerCase()).join(', ')+(MODS[id].batt?' · na baterie':'');
   infoEl.innerHTML=`<b>${d.n}</b>${q>1?' ×'+q:''}<span class="cat">${d.c} · ${d.w}×${d.h} · ${(wtOf(id)*(q||1)).toFixed(2).replace(/\.?0+$/,'')} kg</span><p>${d.d}</p>${u?`<p class="eff">${u}</p>`:''}<p class="hint">${d.use?'Dwuklik: użyj':(d.cloth||d.melee||d.light||MODS[id])?'Dwuklik: załóż':'Dwuklik: przenieś'}</p>`;}
 function quickAct(g,it){
+  if(g===player.inv&&GUN[it.id]){openWm(it.id);return;}
   if(g===player.inv){if(useItem(g,it)){refreshUI();return;}if(uiCont){if(!addItem(uiCont.g,it.id,it.q)){g.items.splice(g.items.indexOf(it),1);}refreshUI();}return;}
   const left=addItem(player.inv,it.id,it.q);if(left===it.q){log('Plecak jest pełny.');return;}
   if(left)it.q=left;else g.items.splice(g.items.indexOf(it),1);sfx('podniesienie',player.x,player.y,player.z,.5);refreshUI();
@@ -1972,13 +2037,14 @@ function startDrag(e,box){
 function moveGhost(e){if(!drag)return;const g=drag.ghost,w=parseFloat(g.style.width),h=parseFloat(g.style.height);g.style.left=(e.clientX-drag.gx*w)+'px';g.style.top=(e.clientY-drag.gy*h)+'px';drag.cx=e.clientX;drag.cy=e.clientY;markDrop();}
 function dropTarget(){
   if(!drag)return null;const w=parseFloat(drag.ghost.style.width),h=parseFloat(drag.ghost.style.height),x0=drag.cx-drag.gx*w,y0=drag.cy-drag.gy*h;
+  const top=document.elementFromPoint(drag.cx,drag.cy);if(top&&top.closest&&top.closest('#wmPop')){const s=top.closest('[data-slot]');return s?{slot:s.dataset.slot}:null;}
   for(const el of [gPl,gCo]){if(el===gCo&&!uiCont)continue;const r=el.getBoundingClientRect();
     if(drag.cx>=r.left&&drag.cx<=r.right&&drag.cy>=r.top&&drag.cy<=r.bottom){const cx=Math.round((x0-r.left)/CELLPX),cy=Math.round((y0-r.top)/CELLPX);return {el,g:el._g,x:cx,y:cy};}}
-  for(const s of slotsEl.children){const r=s.getBoundingClientRect();if(drag.cx>=r.left&&drag.cx<=r.right&&drag.cy>=r.top&&drag.cy<=r.bottom)return {slot:s.dataset.slot};}
+  for(const e of document.elementsFromPoint(drag.cx,drag.cy)){const s=e.closest&&e.closest('#inv [data-slot]');if(s&&!s.dataset.slot.startsWith('gun:'))return {slot:s.dataset.slot};if(e.id==='wmPop')return null;}
   return null;
 }
-function markDrop(){const t=dropTarget();for(const s of slotsEl.children)s.classList.remove('ok','bad');drag.ghost.classList.remove('ok','bad');if(!t)return;
-  if(t.slot){const d=IT[drag.it.id],ok=slotOk(drag.it.id,t.slot);[...slotsEl.children].find(s=>s.dataset.slot===t.slot).classList.add(ok?'ok':'bad');return;}
+function markDrop(){const t=dropTarget();for(const s of allSlots())s.classList.remove('ok','bad');drag.ghost.classList.remove('ok','bad');if(!t)return;
+  if(t.slot){const d=IT[drag.it.id],ok=slotOk(drag.it.id,t.slot);[...allSlots()].find(s=>s.dataset.slot===t.slot).classList.add(ok?'ok':'bad');return;}
   const same=t.g.items.find(o=>o!==drag.it&&o.id===drag.it.id&&o.q<(IT[o.id].stack||1)&&t.x>=o.x&&t.x<o.x+iw(o)&&t.y>=o.y&&t.y<o.y+ih(o));
   drag.ghost.classList.add(same||fits(t.g,drag.it.id,t.x,t.y,drag.r,drag.it)?'ok':'bad');}
 function endDrag(){
@@ -2001,7 +2067,7 @@ function openUI(cont){
   const avail=Math.min(stage.clientWidth-60,980);const cols=player.inv.w+(uiCont?uiCont.g.w:0)+5;CELLPX=Math.max(26,Math.min(44,Math.floor(avail/cols)));
   for(const k in keys)keys[k]=false;refreshUI();infoEl.innerHTML='<p class="hint">Najedź na przedmiot, żeby zobaczyć opis.</p>';
 }
-function closeUI(){if(drag){drag.ghost.remove();drag=null;}uiOpen=false;uiCont=null;invEl.hidden=true;updAmmoUI();}
+function closeUI(){wmOpen=null;selIt=null;document.getElementById('wmPop').hidden=true;if(drag){drag.ghost.remove();drag=null;}uiOpen=false;uiCont=null;invEl.hidden=true;updAmmoUI();}
 document.getElementById('bTakeAll').addEventListener('click',takeAll);
 document.getElementById('bInvClose').addEventListener('click',closeUI);
 document.getElementById('bInv').addEventListener('click',()=>{if(!ready)return;uiOpen?closeUI():openUI(null);});
