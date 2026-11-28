@@ -72,6 +72,7 @@ for k in LIST: im, w, h = from_atlas(k); icons[k] = (fit(im, w, h), w, h)
 icons['ammo_762'] = (fit(Image.open(D + 'icons_ammo_naboje_762.webp').convert('RGBA'), 1, 1), 1, 1)
 icons['ammo_shell'] = (fit(Image.open(D + 'icons_ammo_srut.webp').convert('RGBA'), 1, 1), 1, 1)
 icons['rifle'] = (fit(Image.open(D + 'snajperka.webp').convert('RGBA'), 5, 1), 5, 1)
+icons['scope'] = (fit(Image.open(D + 'snajperka.webp').convert('RGBA').crop((92, 0, 183, 24)), 2, 1), 2, 1)  # the rifle's own scope
 icons['shotgun'] = (fit(Image.open(D + 'strzelba.webp').convert('RGBA'), 4, 1), 4, 1)
 icons['molotov'] = (fit(Image.open(D + 'molotov.webp').convert('RGBA'), 1, 2), 1, 2)
 icons['grenade'] = (fit(Image.open('bl/icons_out/ic_grenade.png').convert('RGBA'), 1, 1), 1, 1)

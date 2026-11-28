@@ -39,6 +39,11 @@ body{background:var(--bg);color:var(--text);font-family:var(--f-ui);overflow:hid
 #body .bar{height:8px;background:#14130f;border:1px solid #3a372f;border-radius:2px;overflow:hidden}
 #body .bar i{display:block;height:100%;width:0;background:var(--green);transition:width .2s}
 #body #dState{grid-column:1/3;font-family:var(--f-term);font-size:17px;color:var(--text)}
+#aimPanel{position:absolute;right:max(10px,env(safe-area-inset-right,0px));top:10px;z-index:6;background:rgba(14,13,10,.94);border:1px solid #ffcf5a;border-radius:6px;padding:10px 12px;width:230px;color:var(--text,#e8e0c8)}
+#aimPanel .ah{font-size:12px;color:var(--muted,#a8a08a);margin:4px 0 8px}
+#aimList{display:flex;flex-direction:column;gap:4px;margin-bottom:8px}
+#aimList button,#aimNo{display:flex;justify-content:space-between;background:#24211b;color:inherit;border:1px solid #4a463c;border-radius:4px;padding:4px 8px;font:inherit;font-size:15px;cursor:pointer;width:100%}
+#aimList button:hover{border-color:#ffcf5a}#aimList button b{color:#ffcf5a;font-family:var(--f-term)}#aimList button:disabled{opacity:.45;cursor:default}#aimList button:disabled b{color:inherit}
 #keypad{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:6;background:rgba(14,13,10,.96);border:1px solid var(--amber,#e8a63a);border-radius:6px;padding:12px 16px;color:var(--text,#e8e0c8);text-align:center;min-width:240px}
 #kpDials{display:flex;gap:10px;justify-content:center;margin:8px 0}
 #kpDials .dial{display:flex;flex-direction:column;align-items:center;gap:2px}
@@ -91,7 +96,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--f-ui);overflow:hid
 #wmPop .ph button{background:none;border:0;color:var(--text);font-size:18px;cursor:pointer}
 #wmPop .wmg{display:flex;gap:12px;align-items:center}
 #wmPop .wmIcon{position:relative;width:150px;height:80px;background:#191814;border:1px solid #4a463e;border-radius:4px;overflow:hidden}
-#wmSlots{display:grid;grid-template-columns:repeat(2,64px);gap:6px}
+#wmSlots{display:grid;grid-template-columns:repeat(3,64px);gap:6px}
 #wmInfo{margin:8px 0 0;font-size:14px;color:var(--muted);max-width:340px}
 #slots{display:grid;grid-template-columns:auto 1fr auto;gap:8px}
 #slots .slot,#wmSlots .slot{position:relative;width:64px;height:64px;background:#191814;border:1px solid #4a463e;border-radius:4px;overflow:hidden}
@@ -117,6 +122,7 @@ button kbd{font-family:var(--f-term);font-size:17px;color:var(--amber);margin-ri
     <canvas id="c" aria-label="Izometryczna scena z prerenderowanych sprite'ów: zrujnowana kamienica, pawilon, wrak auta, złomiarze i wilczur"></canvas>
     <div id="vig"></div>
     <div id="tip" hidden></div>
+    <div id="aimPanel" hidden><div class="lbl" id="aimTitle">CEL</div><p class="ah">Czas stoi. Wybierz, w co strzelasz (klik na liście albo na ciele wroga). Esc: rezygnujesz.</p><div id="aimList"></div><button id="aimNo">Anuluj</button></div>
     <div id="keypad" hidden><div class="lbl">SEJF · SZYFR</div><div id="kpDials"></div><p id="kpHint"></p><div class="kpb"><button id="kpOk">Otwórz</button><button id="kpNo">Odejdź</button></div></div>
     <div id="ovl" aria-label="Ciało i wykrycie"><div class="lbl">CIAŁO I WYKRYCIE</div>
       <span>Kondycja</span><div class="bar"><i id="oSta"></i></div>
@@ -1119,7 +1125,7 @@ function pickWorld(bx,by){
 function playerFire(bx,by){
   if(uiOpen)return;if(searchSt){searchSt=null;}
   if(!player.alive){log('Nie żyjesz. Naciśnij R, żeby zacząć od nowa.');return;}
-  if(cool>0)return;const T=pickWorld(bx,by);if(!T)return;const w=WEAP[cur];
+  if(cool>0)return;const T=forcedShot?forcedShot.T:pickWorld(bx,by);if(!T)return;const w=WEAP[cur];
   if(w.gun&&!player.canShoot){log('Broń dwuręczna: jedną ręką nie strzelisz. Weź nóż (6) albo granat.');return;}
   if(!w.gun&&handOf(player)<0&&w.id!=='melee'){log('Bez rąk nic nie rzucisz.');return;}
   if(player.gait==='run'&&player.moving&&w.gun){log('W biegu nie strzelisz celnie. Puść Shift.');return;}
@@ -1135,7 +1141,7 @@ function playerFire(bx,by){
     const M=muzzle(player),p=proj(...M),md=modsOf(w.id);flashes.push({x:p[0],y:p[1],r:(w.id==='rifle'?16:24)*gunStat(w.id,'flash',1),a:.9});
     sfx(md.muzzle==='suppressor'?'strzal_tlumik':w.id==='rifle'?'karabin':'strzelba');
     const hl=player.lightOn&&player.eq.light&&IT[player.eq.light.id].light.hand;
-    const sv=shiver(),spk=gunStat(w.id,'spread',1)/(md.rail==='laser'&&player.batt<=0?.6:1)*(hl?1.6:1),dm=gunStat(w.id,'dmg',1),rk=gunStat(w.id,'recoil',1);
+    const sv=shiver(),spk=(forcedShot?forcedShot.k:gunStat(w.id,'spread',1)/(md.rail==='laser'&&player.batt<=0?.6:1))*(hl?1.6:1),dm=gunStat(w.id,'dmg',1),rk=gunStat(w.id,'recoil',1);
     if(w.id==='rifle')fireBullet(player,M,T,(.002+sv*.007)*spk,45*dm,2.2,.3);else for(let k=0;k<9;k++)fireBullet(player,M,T,(.03+sv*.008)*Math.max(.75,spk),14*dm,1.4,.07);
     shake+=(w.id==='rifle'?.8:1.6)*rk;player.recoil=(w.id==='rifle'?7:11)*rk;
     if(player.mag[w.id]<=0)setTimeout(()=>{if(player.alive&&!player.reload)startReload(w.id,true);},250);
@@ -1922,12 +1928,12 @@ function drawFx(){
   for(const t of tracers){ctx.strokeStyle=`rgba(255,226,150,${t.life/7})`;ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(t.a[0],t.a[1]);ctx.lineTo(t.b[0],t.b[1]);ctx.stroke();}
   ctx.restore();
   ctx.save();ctx.globalAlpha=.022;ctx.translate((rnd()*128)|0,(rnd()*128)|0);ctx.fillStyle=grain;ctx.fillRect(-128,-128,BW+128,BH+128);ctx.restore();
-  drawRoofHole(false);drawWeather();applyLightmap();drawFireGlow();drawHandFlame();drawLights();drawRings();drawBubbles();drawInteract();
+  drawRoofHole(false);drawWeather();applyLightmap();drawFireGlow();drawHandFlame();drawLights();drawAimOverlay();drawRings();drawBubbles();drawInteract();
   drawAim();
   if(mx>=0){const hov=fPick[my*BW+mx]<=-2;ctx.fillStyle=hov?'#ff5a43':'#ffffff';ctx.fillRect(mx-6,my,4,1);ctx.fillRect(mx+3,my,4,1);ctx.fillRect(mx,my-6,1,4);ctx.fillRect(mx,my+3,1,4);}
 }
 
-window.__op={get TIME(){return TIME},get HOLE(){return HOLE},get SECRET(){return SECRET},installMod:(...a)=>installMod(...a),toggleLight:()=>toggleLight(),trySafe:c=>trySafe(c),startReload:w=>startReload(w),get pend(){return pend},get drag(){return drag},dropTarget:()=>dropTarget(),setW,addItem,get IT(){return IT},sever,gainXP,loadKg,get keys(){return keys},get blds(){return blds},setDoor,nearDoor,get ROT(){return ROT},get objs(){return objs},get wx(){return wx},setWeather,get conts(){return conts},get lights(){return lights},interact,get uiOpen(){return uiOpen},closeUI,openUI,get viewB(){return viewB},get chars(){return chars},get nb(){return nb},get gb(){return gBurn.length},get amt(){return fireAmt},moloBurst,explode,setStance,rotateView,get player(){return player}};
+window.__op={get TIME(){return TIME},get HOLE(){return HOLE},get SECRET(){return SECRET},installMod:(...a)=>installMod(...a),toggleLight:()=>toggleLight(),trySafe:c=>trySafe(c),startReload:w=>startReload(w),get aimMode(){return aimMode},startAim:c=>startAim(c),aimShoot:p=>aimShoot(p),get pend(){return pend},get drag(){return drag},dropTarget:()=>dropTarget(),setW,addItem,get IT(){return IT},sever,gainXP,loadKg,get keys(){return keys},get blds(){return blds},setDoor,nearDoor,get ROT(){return ROT},get objs(){return objs},get wx(){return wx},setWeather,get conts(){return conts},get lights(){return lights},interact,get uiOpen(){return uiOpen},closeUI,openUI,get viewB(){return viewB},get chars(){return chars},get nb(){return nb},get gb(){return gBurn.length},get amt(){return fireAmt},moloBurst,explode,setStance,rotateView,get player(){return player}};
 
 // ================= HUD =================
 const logEl=document.getElementById('log'),tip=document.getElementById('tip'),stats=document.getElementById('stats');
@@ -2131,6 +2137,7 @@ const stage=document.getElementById('stage');
 addEventListener('keydown',e=>{
   if(e.target.closest&&e.target.closest('button')&&(e.key===' '||e.key==='Enter'))return;
   const k=e.key.toLowerCase();
+  if(aimMode){if(e.key==='Escape')endAim();e.preventDefault();return;}
   if(uiOpen){if(k==='r'&&drag){drag.r=drag.r?0:1;const gh=drag.ghost;drag.ghost=mkGhost(drag.it.id,drag.r);gh.remove();moveGhost({clientX:drag.cx,clientY:drag.cy});}
     else if(k==='i'||k==='escape'||k==='tab'||k==='f'){e.preventDefault();closeUI();}return;}
   if(k==='i'||k==='tab'){e.preventDefault();if(ready&&player.alive)openUI(null);return;}
@@ -2166,7 +2173,10 @@ addEventListener('blur',()=>{for(const k in keys)keys[k]=false;});
 function toBuf(e){const r=cv.getBoundingClientRect();return [Math.floor((e.clientX-r.left)/r.width*BW),Math.floor((e.clientY-r.top)/r.height*BH)];}
 cv.addEventListener('pointermove',e=>{[mx,my]=toBuf(e);if(mx<0||my<0||mx>=BW||my>=BH)mx=my=-1;const sr=stage.getBoundingClientRect();tip.style.left=(e.clientX-sr.left+18)+'px';tip.style.top=(e.clientY-sr.top+14)+'px';});
 cv.addEventListener('pointerleave',()=>{mx=my=-1;tip.hidden=true;});
-cv.addEventListener('pointerdown',e=>{if(!ready)return;if(e.pointerType==='mouse'&&e.button!==0)return;const [bx,by]=toBuf(e);mx=bx;my=by;playerFire(bx,by);});
+cv.addEventListener('pointerdown',e=>{if(!ready)return;if(e.pointerType==='mouse'&&e.button!==0)return;const [bx,by]=toBuf(e);mx=bx;my=by;
+  if(aimMode){const h=charHit(aimMode.ch,bx,by);if(h)aimShoot(h.pi);return;}
+  if(!uiOpen&&player.alive&&WEAP[cur].id==='rifle'&&player.wm&&player.wm.rifle.optic==='scope'&&player.canShoot&&cool<=0){for(const ch of chars){if(ch===player||!ch.alive||charHidden(ch))continue;if(charHit(ch,bx,by)){startAim(ch);return;}}}
+  playerFire(bx,by);});
 function fit(){placeCanvas();}
 addEventListener('resize',fit);new ResizeObserver(fit).observe(stage);
 
@@ -2279,6 +2289,7 @@ Object.assign(IT,{
   candle:{n:'Świeczka',c:'Światło',d:'Mały, ciepły krąg światła. Wystarczy na długo, z daleka prawie jej nie widać.',light:{k:'candle',rad:62,col:[255,196,120],burn:21600,hand:true},stack:3},
   flashlight:{n:'Latarka',c:'Światło',d:'Mocny snop światła tam, gdzie patrzysz. Zjada baterie.',light:{k:'flash',len:215,ang:.36,col:[226,236,255],batt:true,hand:true}},
   headlamp:{n:'Latarka czołowa',c:'Światło',d:'Świeci tam, gdzie patrzysz, a obie ręce zostają wolne — można strzelać z karabinu.',light:{k:'head',len:150,ang:.5,col:[226,236,255],batt:true}},
+  scope:{n:'Luneta',c:'Dodatki do broni',d:'Luneta celownicza na karabin. Kliknij wroga z karabinem z lunetą: czas staje i wybierasz, w którą część ciała strzelić.'},
   suppressor:{n:'Tłumik',c:'Dodatki do broni',d:'Na lufę karabinu. Strzał słychać dużo bliżej, prawie bez błysku. Trochę słabszy pocisk.'},
   muzzle_brake:{n:'Hamulec wylotowy',c:'Dodatki do broni',d:'Tłumik odrzutu na lufę karabinu albo strzelby. Broń mniej podskakuje, następne strzały są celniejsze. Głośniejszy.'},
   laser:{n:'Celownik laserowy',c:'Dodatki do broni',d:'Na szynę. Czerwona kropka tam, gdzie poleci pocisk — dużo celniej z biodra. Potrzebuje baterii.'},
@@ -2292,14 +2303,14 @@ Object.assign(IT,{
   safe_key:{n:'Klucz z przywieszką',c:'Klucze',d:'Ciężki, stary klucz. Na kartoniku ktoś napisał: „sklep — zaplecze”.'},
   code_note:{n:'Kartka z cyframi',c:'Notatki',get d(){return `Pognieciona kartka. Większość cyfr przekreślona, zostało tylko: ${SECRET.code}. Może szyfr do sejfu?`;}},
 });
-Object.assign(WT,{torch:.6,candle:.15,flashlight:.35,headlamp:.2,suppressor:.5,muzzle_brake:.2,laser:.15,wlight:.2,stock_light:.3,stock_pad:.9,mag_ext:.45,mag_dual:.55,mag_light:.12,sidesaddle:.25,safe_key:.08,code_note:.01});
+Object.assign(WT,{scope:.45,torch:.6,candle:.15,flashlight:.35,headlamp:.2,suppressor:.5,muzzle_brake:.2,laser:.15,wlight:.2,stock_light:.3,stock_pad:.9,mag_ext:.45,mag_dual:.55,mag_light:.12,sidesaddle:.25,safe_key:.08,code_note:.01});
 LOOT.tools.push(['flashlight',.7],['candle',1],['torch',.8],['headlamp',.4]);
 LOOT.military.push(['muzzle_brake',.5],['mag_ext',.5],['mag_light',.5],['mag_dual',.4],['sidesaddle',.5],['stock_pad',.4],['wlight',.4]);
 LOOT.shop.push(['candle',1],['flashlight',.4]);
 LOOT.safe=[['suppressor',1],['laser',1],['wlight',.8],['stock_light',.7],['stock_pad',.7],['mag_ext',.8],['ammo_762',2],['ammo_shell',1.5],['first_aid_kit',.8],['antibiotics',.8],['batteries',1.2],['grenade',.6]];
 SLOTS.push(['light','Światło']);
 // ---- weapon modifications and magazines ----
-const MODS={suppressor:{slot:'muzzle',w:['rifle'],noise:.28,flash:.25,dmg:.92,snd:'strzal_tlumik'},
+const MODS={scope:{slot:'optic',w:['rifle'],spread:.8},suppressor:{slot:'muzzle',w:['rifle'],noise:.28,flash:.25,dmg:.92,snd:'strzal_tlumik'},
   muzzle_brake:{slot:'muzzle',w:['rifle','shotgun'],recoil:.5,spread:.85,noise:1.12},
   laser:{slot:'rail',w:['rifle','shotgun'],spread:.6,batt:true},
   wlight:{slot:'rail',w:['rifle','shotgun'],batt:true},
@@ -2309,12 +2320,12 @@ const MODS={suppressor:{slot:'muzzle',w:['rifle'],noise:.28,flash:.25,dmg:.92,sn
   mag_dual:{slot:'mag',w:['rifle'],cap:10,reload:38},
   mag_light:{slot:'mag',w:['rifle'],cap:8,reload:60,cd:.88},
   sidesaddle:{slot:'mag',w:['shotgun'],perShell:11}};
-const MOD_SLOTS=[['muzzle','Lufa'],['rail','Szyna'],['stock','Kolba'],['mag','Magazynek']];
+const MOD_SLOTS=[['optic','Luneta'],['muzzle','Lufa'],['rail','Szyna'],['stock','Kolba'],['mag','Magazynek']];
 const GUN={rifle:{cap:10,reload:90,ammo:'ammo_762',n:'Karabin'},shotgun:{cap:5,perShell:24,ammo:'ammo_shell',n:'Strzelba'}};
 function modsOf(w){return player.wm?player.wm[w]:{};}
 function gunStat(w,k,def){let v=def;for(const s in modsOf(w)){const m=MODS[modsOf(w)[s]];if(m&&m[k]!==undefined)v=(k==='cap'||k==='reload'||k==='perShell')?m[k]:v*m[k];}return v;}
 const capOf=w=>gunStat(w,'cap',GUN[w].cap);
-function initGunState(){player.wm={rifle:{},shotgun:{}};player.mag={rifle:capOf('rifle'),shotgun:capOf('shotgun')};player.reload=null;player.batt=100;player.lightOn=false;player.lightFuel=0;}
+function initGunState(){player.wm={rifle:{optic:'scope'},shotgun:{}};player.mag={rifle:capOf('rifle'),shotgun:capOf('shotgun')};player.reload=null;player.batt=100;player.lightOn=false;player.lightFuel=0;}
 function installMod(g,it,w){
   const m=MODS[it.id];if(!m)return false;w=w||m.w.find(x=>countItem(player.inv,x))||m.w[0];if(!m.w.includes(w)){log(`${IT[it.id].n} nie pasuje do: ${GUN[w].n.toLowerCase()}.`);return false;}
   const old=player.wm[w][m.slot];g.items.splice(g.items.indexOf(it),1);player.wm[w][m.slot]=it.id;
@@ -2472,12 +2483,48 @@ function drawRoofHole(inLm){
   ctx.restore();
 }
 
+// ================= aimed shot through the scope =================
+let aimMode=null,forcedShot=null;
+const AIM_BASE={head:.42,torso:.9,armL:.62,armR:.62,legL:.68,legR:.68,body:.9};
+function aimChances(ch){
+  const M=muzzle(player),out=[];
+  for(let pi=0;pi<ch.T.np;pi++){if(!ch.att[pi])continue;const im=frameOf(ch)[pi];if(!im)continue;
+    const C=partCenter(ch,pi,[0,0,0]),vis=los(M,C),d=Math.hypot(C[0]-M[0],C[1]-M[1],C[2]-M[2]);
+    const name=ch.T.defs[pi].name,base=AIM_BASE[name]||.6,lv=Math.min(1,lightLevel(C[0],C[1],C[2])+(ownLight()?.4:0));
+    let p=base*Math.max(.3,1-d/560)*(1-Math.min(.5,shiver()*.35))*(.55+.45*lv)*(ch.stance==='prone'?.8:1)*wx.cur.vis**.3;
+    if(player.stance!=='stand')p*=1.1;p=Math.max(.05,Math.min(.95,p));
+    out.push({pi,label:ch.T.defs[pi].label,vis,p:vis?p:0,C});}
+  return out;
+}
+function startAim(ch){
+  const w=WEAP.find(w=>w.id==='rifle');if(player.reload){log('Przeładowujesz…');return;}if(player.mag.rifle<=0){startReload('rifle');return;}
+  aimMode={ch,parts:aimChances(ch),hov:-1};if(!aimMode.parts.some(p=>p.vis)){log('Nic nie widać z tego miejsca.');aimMode=null;return;}
+  player.dir=dirTo(ch.x-player.x,ch.y-player.y);renderAimPanel();document.getElementById('aimPanel').hidden=false;sfx('montaz',player.x,player.y,player.z,.25);
+}
+function endAim(){aimMode=null;document.getElementById('aimPanel').hidden=true;}
+function aimShoot(pi){
+  const a=aimMode;if(!a)return;const P=a.parts.find(p=>p.pi===pi);if(!P||!P.vis)return;endAim();
+  const hit=rnd()<P.p,T=P.C.slice();if(!hit){const r=4+rnd()*5,t=rnd()*6.283;T[0]+=Math.cos(t)*r;T[1]+=Math.sin(t)*r;T[2]+=(rnd()-.4)*6;}
+  forcedShot={T,k:hit?.05:1.4};cool=0;playerFire(-1,-1);forcedShot=null;
+  log(hit?`Celny strzał: ${a.ch.name}, ${P.label}.`:`Pudło — ${P.label} (szansa była ${Math.round(P.p*100)}%).`);
+}
+function renderAimPanel(){const a=aimMode,el=document.getElementById('aimList');el.innerHTML='';
+  document.getElementById('aimTitle').textContent=`CEL: ${a.ch.name.toUpperCase()}`;
+  for(const P of a.parts){const b=document.createElement('button');b.disabled=!P.vis;b.innerHTML=`<span>${P.label[0].toUpperCase()+P.label.slice(1)}</span><b>${P.vis?Math.round(P.p*100)+'%':'zasłonięte'}</b>`;
+    b.addEventListener('click',()=>aimShoot(P.pi));b.addEventListener('pointerenter',()=>{a.hov=P.pi;});b.addEventListener('pointerleave',()=>{if(a.hov===P.pi)a.hov=-1;});el.appendChild(b);}}
+document.getElementById('aimNo').addEventListener('click',endAim);
+function drawAimOverlay(){const a=aimMode;if(!a)return;ctx.save();ctx.fillStyle='rgba(0,0,0,.35)';ctx.fillRect(0,0,BW,BH);
+  ctx.font='bold 11px "Barlow Condensed",Arial';ctx.textAlign='center';
+  for(const P of a.parts){const S=proj(...P.C),on=a.hov===P.pi;ctx.strokeStyle=P.vis?(on?'#ffcf5a':'rgba(255,207,90,.7)'):'rgba(160,160,160,.5)';ctx.lineWidth=on?2:1;
+    ctx.beginPath();ctx.arc(S[0],S[1],on?7:5,0,6.283);ctx.stroke();ctx.beginPath();ctx.moveTo(S[0]-10,S[1]);ctx.lineTo(S[0]-4,S[1]);ctx.moveTo(S[0]+4,S[1]);ctx.lineTo(S[0]+10,S[1]);ctx.stroke();
+    if(P.vis){ctx.fillStyle=on?'#ffcf5a':'#f2e8c8';ctx.fillText(Math.round(P.p*100)+'%',S[0]+18,S[1]+4);}}
+  const M=proj(...muzzle(player)),C=proj(a.ch.x,a.ch.y,a.ch.z+12);ctx.setLineDash([3,4]);ctx.strokeStyle='rgba(255,207,90,.35)';ctx.beginPath();ctx.moveTo(M[0],M[1]);ctx.lineTo(C[0],C[1]);ctx.stroke();ctx.restore();}
 // ================= loop =================
 let last=performance.now(),fc=0,fpsT=last,fps=60;
 function frame(now){
   const dt=Math.min(50,now-last);last=now;const ts=(dt/16.67)*(slow?.25:1);
   if(cool>0)cool-=dt/16.67;
-  if(!uiOpen){updChars(ts);updDetached(ts);updEmitters(ts);updChunks(ts);updTopples(ts);updFrags(ts);updSandLeaks(ts);updParticles(ts);updGrenades(ts);updFire(ts);updFx(ts);updView();updWeather(ts);updBody(ts);updLights(ts);updRings(ts);updSearch(ts);updTime(ts);updPlayerLight(ts);updReload(ts);updRoofHole(ts);if(laserOn())batteryTick(ts,.0018);}
+  if(!uiOpen&&!aimMode){updChars(ts);updDetached(ts);updEmitters(ts);updChunks(ts);updTopples(ts);updFrags(ts);updSandLeaks(ts);updParticles(ts);updGrenades(ts);updFire(ts);updFx(ts);updView();updWeather(ts);updBody(ts);updLights(ts);updRings(ts);updSearch(ts);updTime(ts);updPlayerLight(ts);updReload(ts);updRoofHole(ts);if(laserOn())batteryTick(ts,.0018);}
   updOverlay();updBreath();updNightAudio();
   flushDirty(ts);
   fCol.set(sCol);fDep.set(sDep);fZ.set(sZ);fPick.set(sObj);shMark.fill(0);
